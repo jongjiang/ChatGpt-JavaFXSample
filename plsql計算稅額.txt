@@ -1,0 +1,271 @@
+0到540000元,稅率為5%,累進差額為0元;
+540001到1210000元,稅率為12%,累進差額為37800元;
+1210001到2420000元,稅率為20%,累進差額為134600元;
+2420001到4530000元,稅率為30%,累進差額為376600元;
+4530001元以上,稅率為40%,累進差額為829600元
+
+
+DECLARE
+    -- 輸入參數
+    p_income NUMBER := 5000000; -- 輸入所得金額
+    -- 計算變數
+    v_tax_rate NUMBER := 0; -- 稅率
+    v_accumulated_diff NUMBER := 0; -- 累進差額
+    v_tax NUMBER := 0; -- 所得稅
+    v_taxable_income NUMBER := 0; -- 應繳稅額
+BEGIN
+    IF p_income <= 540000 THEN
+        v_tax_rate := 0.05;
+        v_accumulated_diff := 0;
+    ELSIF p_income <= 1210000 THEN
+        v_tax_rate := 0.12;
+        v_accumulated_diff := 37800;
+    ELSIF p_income <= 2420000 THEN
+        v_tax_rate := 0.20;
+        v_accumulated_diff := 134600;
+    ELSIF p_income <= 4530000 THEN
+        v_tax_rate := 0.30;
+        v_accumulated_diff := 376600;
+    ELSE
+        v_tax_rate := 0.40;
+        v_accumulated_diff := 829600;
+    END IF;
+
+    v_taxable_income := p_income * v_tax_rate;
+    v_tax := (p_income - v_accumulated_diff) * v_tax_rate;
+
+    DBMS_OUTPUT.PUT_LINE('應繳稅額為: ' || v_taxable_income);
+    DBMS_OUTPUT.PUT_LINE('所得稅為: ' || v_tax);
+END;
+
+DECLARE
+    -- 輸入參數
+    p_income NUMBER := 5000000; -- 輸入所得金額
+    -- 計算變數
+    v_tax_rate NUMBER := 0; -- 稅率
+    v_accumulated_diff NUMBER := 0; -- 累進差額
+    v_tax NUMBER := 0; -- 所得稅
+    v_taxable_income NUMBER := 0; -- 應繳稅額
+BEGIN
+    SELECT 
+        CASE 
+            WHEN p_income <= 540000 THEN 0.05
+            WHEN p_income <= 1210000 THEN 0.12
+            WHEN p_income <= 2420000 THEN 0.20
+            WHEN p_income <= 4530000 THEN 0.30
+            ELSE 0.40
+        END,
+        CASE 
+            WHEN p_income <= 540000 THEN 0
+            WHEN p_income <= 1210000 THEN 37800
+            WHEN p_income <= 2420000 THEN 134600
+            WHEN p_income <= 4530000 THEN 376600
+            ELSE 829600
+        END
+    INTO v_tax_rate, v_accumulated_diff
+    FROM dual;
+
+    v_taxable_income := p_income * v_tax_rate;
+    v_tax := (p_income - v_accumulated_diff) * v_tax_rate;
+
+    DBMS_OUTPUT.PUT_LINE('應繳稅額為: ' || v_taxable_income);
+    DBMS_OUTPUT.PUT_LINE('所得稅為: ' || v_tax);
+END;
+
+在這個例子中，我們使用了 SELECT 和 CASE 表達式來替換了 if 和 else 語句，實現了相同的功能。這裡使用了 dual 資料表，因為 CASE 表達式需要一個 SELECT 查詢來運行。
+
+首先，我們在 SELECT 語句中使用 CASE 表達式來計算稅率和累進差額。如果所得金額小於或等於 540,000 元，則稅率為 5%、累進差額為 0 元；如果所得金額小於或等於 1,210,000 元，則稅率為 12%、累進差額為 37,800 元；以此類推。
+
+接下來，我們將計算出的稅率和累進差額賦值給變數 v_tax_rate 和 v_accumulated_diff。然後，我們使用這些變數來計算應繳稅額和所得稅，並使用 DBMS_OUTPUT.PUT_LINE 函數將結果輸出到控制台。
+
+
+DECLARE
+    -- 輸入參數
+    p_income NUMBER := 5000000; -- 輸入所得金額
+    -- 計算變數
+    v_tax_rate NUMBER := 0; -- 稅率
+    v_accumulated_diff NUMBER := 0; -- 累進差額
+    v_tax NUMBER := 0; -- 所得稅
+    v_taxable_income NUMBER := 0; -- 應繳稅額
+BEGIN
+    SELECT 
+        tax_rate,
+        accumulated_diff
+    INTO v_tax_rate, v_accumulated_diff
+    FROM tax_rates
+    WHERE p_income > lower_bound
+    ORDER BY lower_bound DESC
+    FETCH FIRST 1 ROW ONLY;
+
+    v_taxable_income := p_income * v_tax_rate;
+    v_tax := (p_income - v_accumulated_diff) * v_tax_rate;
+
+    DBMS_OUTPUT.PUT_LINE('應繳稅額為: ' || v_taxable_income);
+    DBMS_OUTPUT.PUT_LINE('所得稅為: ' || v_tax);
+END;
+
+在這個例子中，我們使用了一個名為 tax_rates 的表來存儲稅率和累進差額。表中包含以下列：
+id: 主鍵，自動增量。
+lower_bound: 稅率區間的下界。
+upper_bound: 稅率區間的上界。
+tax_rate: 稅率。
+accumulated_diff: 累進差額。
+我們在 SELECT 語句中使用 WHERE 子句和 ORDER BY 子句，找到所得金額所處的稅率區間。然後，我們將稅率和累進差額賦值給變數 v_tax_rate 和 v_accumulated_diff。
+最後，我們使用這些變數來計算應繳稅額和所得稅，並使用 DBMS_OUTPUT.PUT_LINE 函數將結果輸出到控制台。
+
+好的，為了處理大量的資料計算，我們可以將所得金額存儲在另一個表中，然後使用 JOIN 操作來檢索稅率和累進差額。
+首先，我們可以創建一個名為 incomes 的表，用於存儲所得金額：
+
+CREATE TABLE incomes (
+  id NUMBER PRIMARY KEY,
+  income NUMBER
+);
+
+然後，我們可以插入 3500 萬筆隨機數據作為所得金額：
+
+DECLARE
+  v_income NUMBER;
+BEGIN
+  FOR i IN 1..35000000 LOOP
+    v_income := TRUNC(DBMS_RANDOM.VALUE(0, 5000000));
+    INSERT INTO incomes (id, income) VALUES (i, v_income);
+  END LOOP;
+  COMMIT;
+END;
+
+現在，我們可以創建一個名為 tax_rates 的表，用於存儲稅率和累進差額：
+
+CREATE TABLE tax_rates (
+  id NUMBER PRIMARY KEY,
+  lower_bound NUMBER,
+  upper_bound NUMBER,
+  tax_rate NUMBER,
+  accumulated_diff NUMBER
+);
+
+然後，我們可以插入稅率數據：
+
+INSERT INTO tax_rates (id, lower_bound, upper_bound, tax_rate, accumulated_diff)
+VALUES (1, 0, 540000, 0.05, 0);
+INSERT INTO tax_rates (id, lower_bound, upper_bound, tax_rate, accumulated_diff)
+VALUES (2, 540001, 1210000, 0.12, 37800);
+INSERT INTO tax_rates (id, lower_bound, upper_bound, tax_rate, accumulated_diff)
+VALUES (3, 1210001, 2420000, 0.20, 134600);
+INSERT INTO tax_rates (id, lower_bound, upper_bound, tax_rate, accumulated_diff)
+VALUES (4, 2420001, 4530000, 0.30, 376600);
+INSERT INTO tax_rates (id, lower_bound, upper_bound, tax_rate, accumulated_diff)
+VALUES (5, 4530001, NULL, 0.40, 829600);
+
+現在，我們可以使用 JOIN 操作來計算應繳稅額和所得稅：
+
+SELECT
+  i.id,
+  i.income,
+  tr.tax_rate,
+  tr.accumulated_diff,
+  i.income * tr.tax_rate AS taxable_income,
+  (i.income - tr.accumulated_diff) * tr.tax_rate AS tax
+FROM
+  incomes i
+  JOIN tax_rates tr ON i.income > tr.lower_bound AND (i.income <= tr.upper_bound OR tr.upper_bound IS NULL)
+ORDER BY
+  i.id;
+
+這個查詢使用了 JOIN 操作將 incomes 表和 tax_rates 表聯繫起來。我們在 JOIN 條件中使用了 > 和 <= 運算符來確定所得金額所處的稅率區間。我們還使用了 OR 運算符和 IS NULL 運算符來處理最高級區間的情況，例如最高的區間（4530001 元及以上）。我們還使用了 SELECT 子句中的計算欄位來計算應繳稅額和所得稅。
+如果您需要定期計算所得稅，您可以將此查詢轉換為一個稱為 view 的對象，以方便重複使用：
+
+CREATE OR REPLACE VIEW tax_calculations AS
+SELECT
+  i.id,
+  i.income,
+  tr.tax_rate,
+  tr.accumulated_diff,
+  i.income * tr.tax_rate AS taxable_income,
+  (i.income - tr.accumulated_diff) * tr.tax_rate AS tax
+FROM
+  incomes i
+  JOIN tax_rates tr ON i.income > tr.lower_bound AND (i.income <= tr.upper_bound OR tr.upper_bound IS NULL)
+ORDER BY
+  i.id;
+
+現在，您可以通過選擇 tax_calculations 視圖來檢視計算的所得稅：
+
+SELECT * FROM tax_calculations WHERE id = 1;
+
+這個查詢會返回 id 為 1 的所得稅計算結果。
+
+好的，將 COMMIT 調整為每 1000 筆提交一次可以有效地減少記憶體使用量和數據庫錯誤的可能性。您可以使用以下程式碼將所得稅計算分成多個交易批次：
+
+DECLARE
+  CURSOR c_income IS SELECT id, income FROM incomes ORDER BY id FOR UPDATE;
+  v_income incomes%ROWTYPE;
+  v_calculation tax_calculations%ROWTYPE;
+  v_counter NUMBER := 0;
+BEGIN
+  FOR v_income IN c_income LOOP
+    SELECT * INTO v_calculation FROM tax_calculations WHERE id = v_income.id;
+
+    IF v_calculation.tax IS NULL THEN
+      INSERT INTO tax_calculations (id, tax_rate, accumulated_diff, taxable_income, tax)
+      SELECT
+        v_income.id,
+        tr.tax_rate,
+        tr.accumulated_diff,
+        v_income.income * tr.tax_rate,
+        (v_income.income - tr.accumulated_diff) * tr.tax_rate
+      FROM
+        tax_rates tr
+      WHERE
+        v_income.income > tr.lower_bound AND (v_income.income <= tr.upper_bound OR tr.upper_bound IS NULL);
+
+      v_counter := v_counter + 1;
+
+      IF MOD(v_counter, 1000) = 0 THEN
+        COMMIT;
+      END IF;
+    END IF;
+  END LOOP;
+  COMMIT;
+END;
+
+這段程式碼使用一個游標來遍歷所有所得金額，並在每次處理一個所得金額時檢查是否已經計算了所得稅。如果稅額未計算，則使用 SELECT INTO 語句計算所得稅，然後使用 INSERT INTO 語句將計算結果插入到 tax_calculations 表中。
+在每次處理 1000 筆資料時，我們使用 MOD 運算符來檢查我們是否需要提交交易。如果需要，我們就使用 COMMIT 語句提交當前交易。
+
+DECLARE
+  CURSOR c_income IS SELECT id, income FROM incomes ORDER BY id FOR UPDATE;
+  v_income incomes%ROWTYPE;
+  v_calculation tax_calculations%ROWTYPE;
+  v_counter NUMBER := 0;
+BEGIN
+  FOR v_income IN c_income LOOP
+    SELECT * INTO v_calculation FROM tax_calculations WHERE id = v_income.id;
+
+    INSERT INTO tax_calculations (id, tax_rate, accumulated_diff, taxable_income, tax)
+    SELECT
+      v_income.id,
+      tr.tax_rate,
+      tr.accumulated_diff,
+      v_income.income * tr.tax_rate,
+      (v_income.income - tr.accumulated_diff) * tr.tax_rate
+    FROM
+      tax_rates tr
+    WHERE
+      v_income.income > tr.lower_bound 
+      AND NVL(v_income.income <= tr.upper_bound, 1) = 1 
+      AND v_calculation.tax IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM tax_calculations tc WHERE tc.id = v_income.id AND tc.tax IS NOT NULL
+      );
+
+    v_counter := v_counter + 1;
+
+    IF MOD(v_counter, 1000) = 0 THEN
+      COMMIT;
+    END IF;
+  END LOOP;
+
+  COMMIT;
+END;
+
+此版本與之前的版本非常相似，但它使用了 SQL 的特定語法。使用 NVL 函數來處理 tax_rates 表中 upper_bound 為 NULL 的情況。在 WHERE 子句中使用 NVL(v_income.income <= tr.upper_bound, 1) = 1 可以確保在 tr.upper_bound 是 NULL 的情況下也會返回一個 TRUE 值。
+此外，我們使用 NOT EXISTS 子句來確保每個所得金額只計算一次稅額。只有當 tax_calculations 表中尚未計算某個所得金額的稅額時，才會向表中插入新的計算結果。
