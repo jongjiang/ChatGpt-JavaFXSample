@@ -1,0 +1,168 @@
+寫一個java程式 利用遞迴計算數學階乘 需用lambda
+
+
+以下是使用 Java 8 中的 Lambda 表達式寫一個遞迴計算數學階乘的程式碼範例：
+
+import java.util.function.Function;
+
+public class Factorial {
+    public static void main(String[] args) {
+        Function<Integer, Integer> factorial = n -> (n == 0) ? 1 : n * factorial.apply(n - 1);
+        System.out.println(factorial.apply(5));  // Output: 120
+    }
+}
+這個程式碼將一個匿名的 Lambda 表達式定義為一個 Function，並將它賦值給變數 factorial。然後，該 Lambda 表達式通過遞迴地計算階乘。當 n 等於 0 時，傳回 1，否則傳回 n 乘以 factorial.apply(n - 1) 的結果。
+
+
+
+
+
+再提供一版程式
+以下是使用 Java 8 中的 Lambda 表達式寫一個遞迴計算數學階乘的另一個程式碼範例：
+
+cpp
+Copy code
+import java.util.function.IntFunction;
+
+public class Factorial {
+
+	static class Wrapper {
+		Function<Integer, Integer> factorial;
+	}
+
+	public static void main(String[] args) {
+		final Wrapper w = new Wrapper();
+		w.factorial = n -> (n == 0) ? 1 : n * w.factorial.apply(n - 1);
+		System.out.println(w.factorial.apply(5)); // Output: 120
+	}
+
+}
+	
+這個程式碼也使用 Lambda 表達式來實現遞迴計算數學階乘，不同的是它將 Lambda 表達式定義為一個 IntFunction，並且在遞迴計算階乘時多了一層。
+
+
+繼續，改用非遞迴方式，但仍須用lambda
+以下是使用 Java 8 中的 Lambda 表達式寫一個非遞迴計算數學階乘的程式碼範例：
+
+java
+Copy code
+import java.util.function.IntFunction;
+
+public class Factorial {
+    public static void main(String[] args) {
+        IntFunction<Integer> factorial = n -> {
+            int result = 1;
+            for (int i = 1; i <= n; i++) {
+                result *= i;
+            }
+            return result;
+        };
+        System.out.println(factorial.apply(5));
+    }
+}
+這個程式碼使用了一個 Lambda 表達式來實現非遞迴計算數學階乘，並使用一個 for 迴圈來計算階乘。
+
+
+
+
+
+再提供一版程式
+以下是使用 Java 8 中的 Lambda 表達式寫另一個非遞迴計算數學階乘的程式碼範例：
+
+java
+Copy code
+import java.util.function.IntUnaryOperator;
+
+public class Factorial {
+    public static void main(String[] args) {
+        IntUnaryOperator factorial = n -> {
+            int result = 1;
+            for (int i = 1; i <= n; i++) {
+                result *= i;
+            }
+            return result;
+        };
+        System.out.println(factorial.applyAsInt(5));
+    }
+}
+這個程式碼也使用了一個 Lambda 表達式來實現非遞迴計算數學階乘，不同的是它使用了 IntUnaryOperator 這個類型來定義變數 factorial。還有，在呼叫變數 factorial 的 applyAsInt 方法時需要提供要計算階乘的數字。
+
+
+import java.security.SecureRandom;
+
+public class UUIDGenerator {
+    public static void main(String[] args) {
+        SecureRandom random = new SecureRandom();
+        long mostSigBits = random.nextLong();
+        long leastSigBits = random.nextLong();
+        String uuid = (digits(mostSigBits >> 32, 8) +
+                       digits(mostSigBits >> 16, 4) +
+                       digits(mostSigBits, 4) +
+                       digits(leastSigBits >> 48, 4) +
+                       digits(leastSigBits, 12));
+        System.out.println("Generated UUID: " + uuid);
+    }
+    
+    private static String digits(long val, int digits) {
+        long hi = 1L << (digits * 4);
+        return Long.toHexString(hi | (val & (hi - 1))).substring(1);
+    }
+}
+
+
+
+import java.nio.ByteBuffer;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+public class UUIDGenerator {
+    public static void main(String[] args) {
+        SecureRandom random = new SecureRandom();
+        byte[] randomBytes = new byte[16];
+        random.nextBytes(randomBytes);
+        
+        randomBytes[6] &= 0x0f;
+        randomBytes[6] |= 0x40;
+        randomBytes[8] &= 0x3f;
+        randomBytes[8] |= 0x80;
+        
+        ByteBuffer bb = ByteBuffer.wrap(randomBytes);
+        long high = bb.getLong();
+        long low = bb.getLong();
+        
+        String uuid = (digits(high >> 32, 8) +
+                       digits(high >> 16, 4) +
+                       digits(high, 4) +
+                       digits(low >> 48, 4) +
+                       digits(low, 12));
+        System.out.println("Generated UUID: " + uuid);
+    }
+    
+    private static String digits(long val, int digits) {
+        long hi = 1L << (digits * 4);
+        return Long.toHexString(hi | (val & (hi - 1))).substring(1);
+    }
+}
+
+import java.math.BigInteger;
+import java.security.SecureRandom;
+
+public class PrimeGenerator {
+
+  public static void main(String[] args) {
+    int numBits = 2048;
+    SecureRandom random = new SecureRandom();
+    BigInteger prime = BigInteger.probablePrime(numBits, random);
+    System.out.println("Generated Prime: " + prime);
+  }
+}
+
+此代碼使用「BigInteger」類的「probablePrime」方法生成大質數。這個方法接受兩個參數：「numBits」，表示要生成的質數的位數；以及「random」，表示用於生成隨機數的「SecureRandom」對象。
+
+請注意，「probablePrime」方法只是「極有可能」返回一個質數，而不是絕對保證。因此，您需要在使用此代碼之前對其進行適當的測試。
+
+橢圓曲線的加密方法基於模數和剩餘的概念，它們在計算中的特殊性質使其成為一種強大且安全的加密方法。例如，在橢圓曲線加密中，加密和解密過程都涉及到在曲線上進行數學運算，這些運算非常困難，因此可以保證數據的安全性。
+
+橢圓曲線加密已被广泛用于对互联网通信进行加密，例如 SSL/TLS 协议，以及在加密货币和数字货币领域的应用。
+
+
