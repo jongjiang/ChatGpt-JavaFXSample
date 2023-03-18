@@ -18,8 +18,8 @@ public class PalletLoading5 {
 	static int palletWidth = 6; // width of the pallet
 
 	public static void main(String[] args) {
-		int[] heights = { 3, 2, 4, 1 }; // heights of each box
-		int[] widths = { 2, 4, 1, 3 }; // widths of each box
+		int[] heights = { 3, 2, 4, 1, 1 }; // heights of each box
+		int[] widths = { 2, 4, 1, 3, 2 }; // widths of each box, must <= palletWidth
 		List<Box> boxes = new ArrayList<>();
 		for (int i = 0; i < heights.length; i++) {
 			boxes.add(new Box(i + 1, heights[i], widths[i]));
@@ -100,18 +100,19 @@ public class PalletLoading5 {
 		}
 
 		public boolean canFitBox(Box box) {
-			return box.getWidth() <= width && height + box.getHeight() <= PalletLoading5.palletHeight;
+			return box.getWidth() <= this.width && height + box.getHeight() <= PalletLoading5.palletHeight;
 		}
 
 		public void placeBox(Box box) {
 			boxPlaced = true;
 			boxes.add(box);
-			height += box.getHeight();
-			width -= box.getWidth();
+			this.height += box.getHeight();
+			this.width -= box.getWidth();
 		}
 
 		public void printLevel() {
-			System.out.println("Level " + y);
+			System.out.print("Level " + y);
+			System.out.println("->hight: " + PalletLoading5.palletHeight + ", width:" + PalletLoading5.palletWidth);
 			for (Box box : boxes) {
 				System.out.println("Box " + box.getId() + " (" + box.getHeight() + " x " + box.getWidth() + ")");
 			}
