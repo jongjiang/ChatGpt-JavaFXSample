@@ -5,9 +5,11 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,10 +38,14 @@ import com.google.gson.GsonBuilder;
 public class TreeEditor extends JFrame {
     private JTree tree;
     private DefaultTreeModel treeModel;
-    private Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    // Updated Gson: disable HTML escaping so Unicode characters are not escaped.
+    private Gson gson = new GsonBuilder()
+            .setPrettyPrinting()
+            .disableHtmlEscaping()
+            .create();
 
     public TreeEditor() {
-        super("Multi-line Tree with Black Border, Dialog Rename & Node Hierarchy Moves");
+        super("Multi-line Tree with UTF-8 JSON Export, Black Border, Dialog Rename & Node Hierarchy Moves");
 
         // Create the root node and initialize the tree model.
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Root");
@@ -67,8 +73,7 @@ public class TreeEditor extends JFrame {
         JMenuItem moveDown = new JMenuItem("Move Down");
         JMenuItem promoteNode = new JMenuItem("Promote Node");
         JMenuItem demoteNode = new JMenuItem("Demote Node");
-        
-        // Add items to popup menu.
+
         popupMenu.add(addSibling);
         popupMenu.add(addChild);
         popupMenu.add(renameNode);
@@ -82,10 +87,12 @@ public class TreeEditor extends JFrame {
 
         tree.addMouseListener(new MouseAdapter() {
             public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) showPopup(e);
+                if (e.isPopupTrigger())
+                    showPopup(e);
             }
             public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) showPopup(e);
+                if (e.isPopupTrigger())
+                    showPopup(e);
             }
             private void showPopup(MouseEvent e) {
                 int row = tree.getRowForLocation(e.getX(), e.getY());
@@ -146,7 +153,8 @@ public class TreeEditor extends JFrame {
             textArea.setLineWrap(true);
             textArea.setWrapStyleWord(true);
             JScrollPane sp = new JScrollPane(textArea);
-            int option = JOptionPane.showConfirmDialog(TreeEditor.this, sp, "Edit Node Text", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            int option = JOptionPane.showConfirmDialog(TreeEditor.this, sp, "Edit Node Text",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (option == JOptionPane.OK_OPTION) {
                 String newText = textArea.getText();
                 selectedNode.setUserObject(newText);
@@ -224,7 +232,7 @@ public class TreeEditor extends JFrame {
             }
         });
 
-        // Promote Node (move to a higher hierarchical level).
+        // Promote Node (move up one level in the hierarchy).
         promoteNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
             if (selectedPath == null) {
@@ -240,14 +248,13 @@ public class TreeEditor extends JFrame {
             DefaultMutableTreeNode grandparent = (DefaultMutableTreeNode) parent.getParent();
             int parentIndex = grandparent.getIndex(parent);
             treeModel.removeNodeFromParent(selectedNode);
-            // Insert the node as a sibling of its parent (after the parent).
             treeModel.insertNodeInto(selectedNode, grandparent, parentIndex + 1);
             TreePath newPath = new TreePath(selectedNode.getPath());
             tree.setSelectionPath(newPath);
             tree.scrollPathToVisible(newPath);
         });
 
-        // Demote Node (move to a lower hierarchical level).
+        // Demote Node (move down one level in the hierarchy).
         demoteNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
             if (selectedPath == null) {
@@ -267,7 +274,6 @@ public class TreeEditor extends JFrame {
             }
             DefaultMutableTreeNode previousSibling = (DefaultMutableTreeNode) parent.getChildAt(index - 1);
             treeModel.removeNodeFromParent(selectedNode);
-            // Insert the node as the last child of the previous sibling.
             treeModel.insertNodeInto(selectedNode, previousSibling, previousSibling.getChildCount());
             TreePath newPath = new TreePath(selectedNode.getPath());
             tree.setSelectionPath(newPath);
@@ -275,7 +281,7 @@ public class TreeEditor extends JFrame {
         });
 
         // -------------------------
-        // File Menu (JSON Export/Import, Expand/Collapse)
+        // File Menu: JSON Export/Import, Expand/Collapse
         // -------------------------
         JMenuBar menuBar = new JMenuBar();
         JMenu fileMenu = new JMenu("File");
@@ -291,6 +297,7 @@ public class TreeEditor extends JFrame {
         menuBar.add(fileMenu);
         setJMenuBar(menuBar);
 
+        // Export JSON action using UTF-8.
         exportJson.addActionListener(e -> {
             NodeData data = convertToNodeData((DefaultMutableTreeNode) treeModel.getRoot());
             String jsonString = gson.toJson(data);
@@ -298,7 +305,8 @@ public class TreeEditor extends JFrame {
             int option = fileChooser.showSaveDialog(TreeEditor.this);
             if (option == JFileChooser.APPROVE_OPTION) {
                 File file = fileChooser.getSelectedFile();
-                try (FileWriter writer = new FileWriter(file)) {
+                try (OutputStreamWriter writer = new OutputStreamWriter(
+                        new FileOutputStream(file), "UTF-8")) {
                     writer.write(jsonString);
                     JOptionPane.showMessageDialog(TreeEditor.this, "Export successful!");
                 } catch (IOException ex) {
@@ -308,12 +316,14 @@ public class TreeEditor extends JFrame {
             }
         });
 
+        // Import JSON action.
         importJson.addActionListener(e -> {
             JFileChooser fileChooser = new JFileChooser();
             int option = fileChooser.showOpenDialog(TreeEditor.this);
             if (option == JFileChooser.APPROVE_OPTION) {
                 File file = fileChooser.getSelectedFile();
-                try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(new FileInputStream(file), "UTF-8"))) {
                     StringBuilder sb = new StringBuilder();
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -347,10 +357,10 @@ public class TreeEditor extends JFrame {
             setLineWrap(true);
             setWrapStyleWord(true);
             setOpaque(true);
-            // Compound border: black line border with inner empty padding.
+            // Compound border: black line with inner empty padding.
             setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Color.BLACK),
-                BorderFactory.createEmptyBorder(2, 2, 2, 2)
+                    BorderFactory.createLineBorder(Color.BLACK),
+                    BorderFactory.createEmptyBorder(2, 2, 2, 2)
             ));
         }
 
@@ -358,7 +368,6 @@ public class TreeEditor extends JFrame {
         public Component getTreeCellRendererComponent(JTree tree, Object value,
                                                       boolean selected, boolean expanded,
                                                       boolean leaf, int row, boolean hasFocus) {
-            // Replace <br> with newline.
             String text = value.toString().replaceAll("(?i)<br>", "\n");
             setText(text);
             setFont(tree.getFont());
@@ -376,28 +385,24 @@ public class TreeEditor extends JFrame {
     }
 
     // -------------------------
-    // Expand / Collapse Methods
+    // Expand/Collapse Methods
     // -------------------------
     private void expandAll(JTree tree, TreePath parent) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) parent.getLastPathComponent();
-        if (node.getChildCount() >= 0) {
-            for (int i = 0; i < node.getChildCount(); i++) {
-                DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
-                TreePath path = parent.pathByAddingChild(child);
-                expandAll(tree, path);
-            }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+            TreePath path = parent.pathByAddingChild(child);
+            expandAll(tree, path);
         }
         tree.expandPath(parent);
     }
 
     private void collapseAll(JTree tree, TreePath parent) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) parent.getLastPathComponent();
-        if (node.getChildCount() >= 0) {
-            for (int i = 0; i < node.getChildCount(); i++) {
-                DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
-                TreePath path = parent.pathByAddingChild(child);
-                collapseAll(tree, path);
-            }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+            TreePath path = parent.pathByAddingChild(child);
+            collapseAll(tree, path);
         }
         tree.collapsePath(parent);
     }
