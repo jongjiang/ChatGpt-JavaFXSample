@@ -1,6 +1,7 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.BufferedReader;
@@ -14,7 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
+import javax.swing.InputMap;
 import javax.swing.JColorChooser;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -26,6 +30,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTree;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -40,24 +45,24 @@ import com.google.gson.GsonBuilder;
 public class TreeEditor extends JFrame {
     private JTree tree;
     private DefaultTreeModel treeModel;
-    // Disable HTML escaping so that Unicode and color codes are preserved.
+    // Gson configured to produce pretty JSON without escaping Unicode.
     private Gson gson = new GsonBuilder()
             .setPrettyPrinting()
             .disableHtmlEscaping()
             .create();
 
     public TreeEditor() {
-        super("Tree Editor with Font Color (HTML) & JSON");
+        super("Tree Editor with Color, Hierarchy Moves & Tab Indentation");
 
         // Create the root node using a NodeInfo (default text with black color).
         NodeInfo rootInfo = new NodeInfo("Root", "#000000");
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(rootInfo);
         treeModel = new DefaultTreeModel(root);
         tree = new JTree(treeModel);
-        tree.setEditable(false); // We'll use dialogs to change text and color.
-        tree.setRowHeight(0);    // Variable row height.
+        tree.setEditable(false); // We use dialogs for editing.
+        tree.setRowHeight(0);    // Allow variable row heights.
 
-        // Use custom cell renderer that shows multi-line text and uses node's font color.
+        // Use custom cell renderer that displays multi-line text, a black border, and the node's font color.
         tree.setCellRenderer(new MultiLineTreeCellRenderer());
 
         // Place the tree in a scroll pane.
@@ -75,7 +80,6 @@ public class TreeEditor extends JFrame {
         JMenuItem moveDown = new JMenuItem("Move Down");
         JMenuItem promoteNode = new JMenuItem("Promote Node");
         JMenuItem demoteNode = new JMenuItem("Demote Node");
-
         popupMenu.add(addSibling);
         popupMenu.add(addChild);
         popupMenu.add(renameNode);
@@ -109,19 +113,15 @@ public class TreeEditor extends JFrame {
             }
         });
 
-        // -----------------------
-        // Node Operations
-        // -----------------------
-
+        // ----- Node Operations -----
         // Add Child.
         addChild.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
-            if(selectedPath == null) {
+            if(selectedPath == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Please select a node to add a child.");
                 return;
             }
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) selectedPath.getLastPathComponent();
-            // Default new node with default black color.
             NodeInfo newInfo = new NodeInfo("New Child", "#000000");
             DefaultMutableTreeNode newNode = new DefaultMutableTreeNode(newInfo);
             treeModel.insertNodeInto(newNode, selectedNode, selectedNode.getChildCount());
@@ -131,13 +131,13 @@ public class TreeEditor extends JFrame {
         // Add Sibling.
         addSibling.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
-            if(selectedPath == null) {
+            if(selectedPath == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Please select a node to add a sibling.");
                 return;
             }
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) selectedPath.getLastPathComponent();
             DefaultMutableTreeNode parent = (DefaultMutableTreeNode) selectedNode.getParent();
-            if(parent == null) {
+            if(parent == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Root node cannot have siblings.");
                 return;
             }
@@ -148,23 +148,26 @@ public class TreeEditor extends JFrame {
             tree.expandPath(new TreePath(parent.getPath()));
         });
 
-        // Rename Node using a dialog.
+        // Rename Node via a dialog (with custom Tab and Shift+Tab behavior).
         renameNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
-            if(selectedPath == null) {
+            if(selectedPath == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Please select a node to rename.");
                 return;
             }
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) selectedPath.getLastPathComponent();
             NodeInfo info = (NodeInfo) selectedNode.getUserObject();
+            // Convert any <br> to newline.
             String currentText = info.text.replaceAll("(?i)<br>", "\n");
             JTextArea textArea = new JTextArea(10, 30);
             textArea.setText(currentText);
             textArea.setLineWrap(true);
             textArea.setWrapStyleWord(true);
+            // Enable tab insertion (indent/dedent) by installing custom key bindings.
+            setupTabKeyBindings(textArea);
             JScrollPane sp = new JScrollPane(textArea);
             int option = JOptionPane.showConfirmDialog(TreeEditor.this, sp, "Edit Node Text", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-            if(option == JOptionPane.OK_OPTION) {
+            if(option == JOptionPane.OK_OPTION){
                 String newText = textArea.getText();
                 info.text = newText;
                 treeModel.nodeChanged(selectedNode);
@@ -179,7 +182,7 @@ public class TreeEditor extends JFrame {
         // Change Font Color.
         changeColor.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
-            if(selectedPath == null) {
+            if(selectedPath == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Please select a node to change its color.");
                 return;
             }
@@ -188,12 +191,11 @@ public class TreeEditor extends JFrame {
             Color currentColor;
             try {
                 currentColor = Color.decode(info.color);
-            } catch(Exception ex) {
+            } catch(Exception ex){
                 currentColor = Color.BLACK;
             }
             Color chosen = JColorChooser.showDialog(TreeEditor.this, "Choose Font Color", currentColor);
-            if(chosen != null) {
-                // Save the color as a hex string.
+            if(chosen != null){
                 String hex = String.format("#%06X", (0xFFFFFF & chosen.getRGB()));
                 info.color = hex;
                 treeModel.nodeChanged(selectedNode);
@@ -204,7 +206,7 @@ public class TreeEditor extends JFrame {
         // Delete Node.
         deleteNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
-            if(selectedPath == null) {
+            if(selectedPath == null){
                 JOptionPane.showMessageDialog(TreeEditor.this, "Please select a node to delete.");
                 return;
             }
@@ -266,7 +268,7 @@ public class TreeEditor extends JFrame {
             }
         });
 
-        // Promote Node (move to upper level branch).
+        // Promote Node (move to an upper-level branch).
         promoteNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
             if(selectedPath == null){
@@ -288,7 +290,7 @@ public class TreeEditor extends JFrame {
             tree.scrollPathToVisible(newPath);
         });
 
-        // Demote Node (move to lower level branch: become child of its previous sibling).
+        // Demote Node (move to a lower-level branch: become child of its previous sibling).
         demoteNode.addActionListener(e -> {
             TreePath selectedPath = tree.getSelectionPath();
             if(selectedPath == null){
@@ -314,9 +316,7 @@ public class TreeEditor extends JFrame {
             tree.scrollPathToVisible(newPath);
         });
 
-        // -------------------------
-        // File Menu: JSON Export/Import, Expand/Collapse
-        // -------------------------
+        // ----- File Menu: JSON Export/Import, Expand/Collapse -----
         JMenuBar menuBar = new JMenuBar();
         JMenu fileMenu = new JMenu("File");
         JMenuItem exportJson = new JMenuItem("Export JSON");
@@ -382,6 +382,77 @@ public class TreeEditor extends JFrame {
     }
 
     // -------------------------
+    // Helper: Set up Tab and Shift+Tab key bindings in a JTextArea
+    // -------------------------
+    private static void setupTabKeyBindings(JTextArea textArea) {
+        textArea.setFocusTraversalKeysEnabled(false); // Allow Tab in text area.
+        InputMap im = textArea.getInputMap();
+        ActionMap am = textArea.getActionMap();
+        
+        im.put(KeyStroke.getKeyStroke("TAB"), "insert-tab");
+        am.put("insert-tab", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
+                JTextArea ta = (JTextArea) e.getSource();
+                int start = ta.getSelectionStart();
+                int end = ta.getSelectionEnd();
+                if(start == end) {
+                    // No selection: Insert tab character.
+                    ta.insert("\t", start);
+                    ta.setCaretPosition(start + 1);
+                } else {
+                    String selected = ta.getSelectedText();
+                    String[] lines = selected.split("\n", -1);
+                    StringBuilder sb = new StringBuilder();
+                    for(int i = 0; i < lines.length; i++){
+                        sb.append("\t").append(lines[i]);
+                        if(i < lines.length - 1) {
+                            sb.append("\n");
+                        }
+                    }
+                    ta.replaceSelection(sb.toString());
+                    ta.select(start, start + sb.length());
+                }
+            }
+        });
+        
+        im.put(KeyStroke.getKeyStroke("shift TAB"), "remove-tab");
+        am.put("remove-tab", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
+                JTextArea ta = (JTextArea) e.getSource();
+                int start = ta.getSelectionStart();
+                int end = ta.getSelectionEnd();
+                if(start == end) {
+                    int caret = ta.getCaretPosition();
+                    if(caret > 0) {
+                        try {
+                            String before = ta.getText(caret - 1, 1);
+                            if("\t".equals(before)){
+                                ta.getDocument().remove(caret - 1, 1);
+                            }
+                        } catch(Exception ex){}
+                    }
+                } else {
+                    String selected = ta.getSelectedText();
+                    String[] lines = selected.split("\n", -1);
+                    StringBuilder sb = new StringBuilder();
+                    for(int i = 0; i < lines.length; i++){
+                        if(lines[i].startsWith("\t")){
+                            sb.append(lines[i].substring(1));
+                        } else {
+                            sb.append(lines[i]);
+                        }
+                        if(i < lines.length - 1) {
+                            sb.append("\n");
+                        }
+                    }
+                    ta.replaceSelection(sb.toString());
+                    ta.select(start, start + sb.length());
+                }
+            }
+        });
+    }
+
+    // -------------------------
     // Custom Multi-line Renderer with Black Border
     // -------------------------
     private static class MultiLineTreeCellRenderer extends JTextArea implements TreeCellRenderer {
@@ -389,20 +460,19 @@ public class TreeEditor extends JFrame {
             setLineWrap(true);
             setWrapStyleWord(true);
             setOpaque(true);
-            // Compound border: black line border with inner padding.
+            // Compound border: black line border with inner empty padding.
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Color.BLACK),
-                    BorderFactory.createEmptyBorder(2,2,2,2)
+                BorderFactory.createLineBorder(Color.BLACK),
+                BorderFactory.createEmptyBorder(2,2,2,2)
             ));
         }
-
         @Override
         public Component getTreeCellRendererComponent(JTree tree, Object value,
                                                       boolean selected, boolean expanded,
                                                       boolean leaf, int row, boolean hasFocus) {
-            // Expect user object to be a NodeInfo.
+            // Expect node's user object to be a NodeInfo.
             NodeInfo info;
-            if(value instanceof DefaultMutableTreeNode) {
+            if(value instanceof DefaultMutableTreeNode){
                 Object userObj = ((DefaultMutableTreeNode)value).getUserObject();
                 if(userObj instanceof NodeInfo){
                     info = (NodeInfo) userObj;
@@ -421,10 +491,9 @@ public class TreeEditor extends JFrame {
                 setForeground(UIManager.getColor("Tree.selectionForeground"));
             } else {
                 setBackground(UIManager.getColor("Tree.textBackground"));
-                // Use node-specific font color.
                 try {
                     setForeground(Color.decode(info.color));
-                } catch(Exception ex) {
+                } catch(Exception ex){
                     setForeground(UIManager.getColor("Tree.textForeground"));
                 }
             }
@@ -442,7 +511,6 @@ public class TreeEditor extends JFrame {
         String color;
         List<NodeData> children = new ArrayList<>();
     }
-
     private NodeData convertToNodeData(DefaultMutableTreeNode node) {
         NodeData data = new NodeData();
         Object userObj = node.getUserObject();
@@ -454,12 +522,11 @@ public class TreeEditor extends JFrame {
             data.text = userObj.toString();
             data.color = "#000000";
         }
-        for(int i=0; i<node.getChildCount(); i++){
+        for(int i = 0; i < node.getChildCount(); i++){
             data.children.add(convertToNodeData((DefaultMutableTreeNode) node.getChildAt(i)));
         }
         return data;
     }
-
     private DefaultMutableTreeNode convertToTreeNode(NodeData data) {
         NodeInfo info = new NodeInfo(data.text, data.color);
         DefaultMutableTreeNode node = new DefaultMutableTreeNode(info);
@@ -474,7 +541,7 @@ public class TreeEditor extends JFrame {
     // -------------------------
     private static class NodeInfo {
         String text;
-        String color; // e.g. "#FF0000"
+        String color; // e.g., "#FF0000"
         public NodeInfo(String text, String color) {
             this.text = text;
             this.color = color;
@@ -490,17 +557,16 @@ public class TreeEditor extends JFrame {
     // -------------------------
     private void expandAll(JTree tree, TreePath parent) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) parent.getLastPathComponent();
-        for(int i=0; i<node.getChildCount(); i++){
+        for(int i = 0; i < node.getChildCount(); i++){
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
             TreePath path = parent.pathByAddingChild(child);
             expandAll(tree, path);
         }
         tree.expandPath(parent);
     }
-
     private void collapseAll(JTree tree, TreePath parent) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) parent.getLastPathComponent();
-        for(int i=0; i<node.getChildCount(); i++){
+        for(int i = 0; i < node.getChildCount(); i++){
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
             TreePath path = parent.pathByAddingChild(child);
             collapseAll(tree, path);
