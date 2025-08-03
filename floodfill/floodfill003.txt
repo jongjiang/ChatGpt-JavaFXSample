@@ -1,0 +1,368 @@
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+public class FloodFill {
+
+    public static void main(String[] args) {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1;
+        int newColor = 2;
+
+        int[][] result = floodFill(image, sr, sc, newColor);
+
+        for (int[] row : result) {
+            for (int pixel : row) {
+                System.out.print(pixel + " ");
+            }
+            System.out.println();
+        }
+    }
+
+    public static int[][] floodFill(int[][] image, int sr, int sc, int newColor) {
+        int rows = image.length;
+        int cols = image[0].length;
+        int originalColor = image[sr][sc];
+        if (originalColor == newColor) return image;
+
+        Deque<Integer> stack = new ArrayDeque<>();
+        stack.push(sr * cols + sc);  // encode position as a single int
+        image[sr][sc] = newColor;
+
+        while (!stack.isEmpty()) {
+            int pos = stack.pop();
+            int r = pos / cols;
+            int c = pos % cols;
+
+            // Check all four directions
+            if (r > 0 && image[r - 1][c] == originalColor) {
+                image[r - 1][c] = newColor;
+                stack.push((r - 1) * cols + c);
+            }
+            if (r < rows - 1 && image[r + 1][c] == originalColor) {
+                image[r + 1][c] = newColor;
+                stack.push((r + 1) * cols + c);
+            }
+            if (c > 0 && image[r][c - 1] == originalColor) {
+                image[r][c - 1] = newColor;
+                stack.push(r * cols + (c - 1));
+            }
+            if (c < cols - 1 && image[r][c + 1] == originalColor) {
+                image[r][c + 1] = newColor;
+                stack.push(r * cols + (c + 1));
+            }
+        }
+
+        return image;
+    }
+}
+================
+public class FloodFill {
+
+    public static void main(String[] args) {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1;
+        int newColor = 2;
+
+        floodFill(image, sr, sc, newColor);
+
+        for (int[] row : image) {
+            for (int val : row) {
+                System.out.print(val + " ");
+            }
+            System.out.println();
+        }
+    }
+
+    public static int[][] floodFill(int[][] image, int sr, int sc, int newColor) {
+        int rows = image.length;
+        int cols = image[0].length;
+        int originalColor = image[sr][sc];
+
+        if (originalColor == newColor) return image;
+
+        // Use a primitive stack (int[]) for speed
+        int[] stack = new int[rows * cols];
+        int top = -1;
+
+        stack[++top] = sr * cols + sc;
+        image[sr][sc] = newColor;
+
+        while (top >= 0) {
+            int index = stack[top--];
+            int r = index / cols;
+            int c = index % cols;
+
+            // Check up
+            if (r > 0 && image[r - 1][c] == originalColor) {
+                image[r - 1][c] = newColor;
+                stack[++top] = (r - 1) * cols + c;
+            }
+            // Check down
+            if (r < rows - 1 && image[r + 1][c] == originalColor) {
+                image[r + 1][c] = newColor;
+                stack[++top] = (r + 1) * cols + c;
+            }
+            // Check left
+            if (c > 0 && image[r][c - 1] == originalColor) {
+                image[r][c - 1] = newColor;
+                stack[++top] = r * cols + (c - 1);
+            }
+            // Check right
+            if (c < cols - 1 && image[r][c + 1] == originalColor) {
+                image[r][c + 1] = newColor;
+                stack[++top] = r * cols + (c + 1);
+            }
+        }
+
+        return image;
+    }
+}
+
+========
+
+public class FloodFill {
+
+    public static void main(String[] args) {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1, newColor = 2;
+
+        floodFill(image, sr, sc, newColor);
+
+        for (int[] row : image) {
+            for (int val : row) {
+                System.out.print(val + " ");
+            }
+            System.out.println();
+        }
+    }
+
+    public static int[][] floodFill(int[][] image, int sr, int sc, int newColor) {
+        final int rows = image.length;
+        final int cols = image[0].length;
+        final int originalColor = image[sr][sc];
+
+        if (originalColor == newColor) return image;
+
+        final int maxSize = rows * cols;
+        final int[] stack = new int[maxSize];
+        int top = 0;
+        stack[top++] = sr * cols + sc;
+        image[sr][sc] = newColor;
+
+        while (top > 0) {
+            final int index = stack[--top];
+            final int r = index / cols;
+            final int c = index % cols;
+
+            final int up = r - 1;
+            final int down = r + 1;
+            final int left = c - 1;
+            final int right = c + 1;
+
+            // Up
+            if (up >= 0 && image[up][c] == originalColor) {
+                image[up][c] = newColor;
+                stack[top++] = up * cols + c;
+            }
+            // Down
+            if (down < rows && image[down][c] == originalColor) {
+                image[down][c] = newColor;
+                stack[top++] = down * cols + c;
+            }
+            // Left
+            if (left >= 0 && image[r][left] == originalColor) {
+                image[r][left] = newColor;
+                stack[top++] = r * cols + left;
+            }
+            // Right
+            if (right < cols && image[r][right] == originalColor) {
+                image[r][right] = newColor;
+                stack[top++] = r * cols + right;
+            }
+        }
+
+        return image;
+    }
+}
+
+==================
+
+import java.util.Queue;
+import java.util.LinkedList;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public class ParallelFloodFill {
+
+    private static final int[][] DIRS = {
+        {0, 1}, {1, 0}, {0, -1}, {-1, 0}
+    };
+
+    public static void main(String[] args) throws InterruptedException {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1, newColor = 2;
+
+        floodFill(image, sr, sc, newColor);
+
+        for (int[] row : image) {
+            for (int val : row) {
+                System.out.print(val + " ");
+            }
+            System.out.println();
+        }
+    }
+
+    public static void floodFill(int[][] image, int sr, int sc, int newColor) throws InterruptedException {
+        int rows = image.length;
+        int cols = image[0].length;
+        int originalColor = image[sr][sc];
+        if (originalColor == newColor) return;
+
+        AtomicBoolean[][] visited = new AtomicBoolean[rows][cols];
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                visited[i][j] = new AtomicBoolean(false);
+            }
+        }
+
+        // Thread-safe task queue for BFS
+        ConcurrentLinkedQueue<int[]> queue = new ConcurrentLinkedQueue<>();
+        queue.offer(new int[]{sr, sc});
+        visited[sr][sc].set(true);
+        image[sr][sc] = newColor;
+
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch latch = new CountDownLatch(numThreads);
+
+        Runnable worker = () -> {
+            while (!queue.isEmpty()) {
+                int[] pixel = queue.poll();
+                if (pixel == null) continue;
+
+                int r = pixel[0], c = pixel[1];
+
+                for (int[] dir : DIRS) {
+                    int nr = r + dir[0], nc = c + dir[1];
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols &&
+                        !visited[nr][nc].get() && image[nr][nc] == originalColor) {
+
+                        if (visited[nr][nc].compareAndSet(false, true)) {
+                            image[nr][nc] = newColor;
+                            queue.offer(new int[]{nr, nc});
+                        }
+                    }
+                }
+            }
+            latch.countDown();
+        };
+
+        // Launch threads
+        for (int i = 0; i < numThreads; i++) {
+            executor.execute(worker);
+        }
+
+        // Wait for all threads to complete
+        latch.await();
+        executor.shutdown();
+    }
+}
+=====
+
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
+
+public class UltraOptimizedFloodFill {
+
+    private static final int[][] DIRS = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+
+    public static void main(String[] args) throws InterruptedException {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1, newColor = 2;
+
+        floodFill(image, sr, sc, newColor);
+
+        for (int[] row : image) {
+            for (int val : row) {
+                System.out.print(val + " ");
+            }
+            System.out.println();
+        }
+    }
+
+    public static void floodFill(int[][] image, int sr, int sc, int newColor) throws InterruptedException {
+        final int rows = image.length, cols = image[0].length;
+        final int originalColor = image[sr][sc];
+        if (originalColor == newColor) return;
+
+        final int size = rows * cols;
+        final AtomicIntegerArray visited = new AtomicIntegerArray(size);
+
+        final ConcurrentLinkedQueue<Integer> queue = new ConcurrentLinkedQueue<>();
+        final int start = sr * cols + sc;
+        visited.set(start, 1);
+        queue.offer(start);
+        image[sr][sc] = newColor;
+
+        final int numThreads = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch latch = new CountDownLatch(numThreads);
+
+        Runnable worker = () -> {
+            while (true) {
+                Integer index = queue.poll();
+                if (index == null) {
+                    if (queue.isEmpty()) break;
+                    continue;
+                }
+
+                int r = index / cols;
+                int c = index % cols;
+
+                for (int[] dir : DIRS) {
+                    int nr = r + dir[0], nc = c + dir[1];
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                        int nIndex = nr * cols + nc;
+                        if (visited.get(nIndex) == 0 && image[nr][nc] == originalColor) {
+                            if (visited.compareAndSet(nIndex, 0, 1)) {
+                                image[nr][nc] = newColor;
+                                queue.offer(nIndex);
+                            }
+                        }
+                    }
+                }
+            }
+            latch.countDown();
+        };
+
+        for (int i = 0; i < numThreads; i++) {
+            executor.execute(worker);
+        }
+
+        latch.await();
+        executor.shutdown();
+    }
+}
+
+
+

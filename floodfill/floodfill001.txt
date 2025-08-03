@@ -1,0 +1,70 @@
+Alright, let's optimize the Flood Fill even further.
+The DFS recursion can cause stack overflow on large grids (e.g., 1000x1000), so a BFS (iterative) approach using a queue is safer and often faster in practice. 
+=====================================
+import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.Queue;
+
+public class FloodFill {
+
+    private static final int[][] DIRECTIONS = {{1,0}, {-1,0}, {0,1}, {0,-1}};
+
+    public static void main(String[] args) {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1;
+        int newColor = 2;
+
+        int[][] result = floodFill(image, sr, sc, newColor);
+        for (int[] row : result) {
+            System.out.println(Arrays.toString(row));
+        }
+    }
+
+    public static int[][] floodFill(int[][] image, int sr, int sc, int newColor) {
+        int rows = image.length, cols = image[0].length;
+        int originalColor = image[sr][sc];
+        if (originalColor == newColor) return image;
+
+        Queue<int[]> queue = new LinkedList<>();
+        queue.offer(new int[]{sr, sc});
+        image[sr][sc] = newColor;
+
+        while (!queue.isEmpty()) {
+            int[] cell = queue.poll();
+            int r = cell[0], c = cell[1];
+
+            for (int[] dir : DIRECTIONS) {
+                int nr = r + dir[0], nc = c + dir[1];
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && image[nr][nc] == originalColor) {
+                    image[nr][nc] = newColor;
+                    queue.offer(new int[]{nr, nc});
+                }
+            }
+        }
+        return image;
+    }
+}
+
+=================================
+
+What’s better here?
+No recursion → avoids stack overflow on huge grids.
+
+Single pass with queue → fewer function calls, better performance.
+
+In-place color change → no extra visited array needed.
+
+Queue-based BFS → uses O(N) space instead of deep recursion.
+
+
+⚡ Want MAX performance?
+If you need even faster flood fill, we can:
+Use a custom ArrayDeque (faster than LinkedList).
+
+Inline direction checks for small performance gains.
+
+Avoid creating int[] for each coordinate (reuse a single buffer).

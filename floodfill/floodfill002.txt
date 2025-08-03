@@ -1,0 +1,69 @@
+Ah, you’re asking for another layer of refinement. Let’s squeeze a bit more efficiency and clarity out of the code—like polishing a well-worn stone.
+Key Improvements This Time:
+Avoid recursion altogether – We'll use an iterative BFS approach with a queue to prevent stack overflow on large images (DFS recursion can blow the call stack for large areas).
+
+Minimize memory allocations – Reuse variables, no repeated creation of direction arrays.
+
+Fewer function calls – Everything is compact and efficient.
+
+
+=====================================================
+import java.util.*;
+
+public class FloodFill {
+
+    private static final int[][] DIRECTIONS = {
+        {0, 1}, {1, 0}, {0, -1}, {-1, 0} // right, down, left, up
+    };
+
+    public static void main(String[] args) {
+        int[][] image = {
+            {1, 1, 1},
+            {1, 1, 0},
+            {1, 0, 1}
+        };
+        int sr = 1, sc = 1;
+        int newColor = 2;
+
+        int[][] result = floodFill(image, sr, sc, newColor);
+
+        for (int[] row : result) {
+            System.out.println(Arrays.toString(row));
+        }
+    }
+
+    public static int[][] floodFill(int[][] image, int sr, int sc, int newColor) {
+        int originalColor = image[sr][sc];
+        if (originalColor == newColor) return image;
+
+        int rows = image.length;
+        int cols = image[0].length;
+
+        Queue<int[]> queue = new LinkedList<>();
+        queue.offer(new int[]{sr, sc});
+        image[sr][sc] = newColor;
+
+        while (!queue.isEmpty()) {
+            int[] cell = queue.poll();
+            int r = cell[0], c = cell[1];
+
+            for (int[] dir : DIRECTIONS) {
+                int nr = r + dir[0], nc = c + dir[1];
+
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && image[nr][nc] == originalColor) {
+                    image[nr][nc] = newColor;
+                    queue.offer(new int[]{nr, nc});
+                }
+            }
+        }
+
+        return image;
+    }
+}
+================
+Why This Version is Better:
+No recursion – Works even for giant grids (no StackOverflowError).
+
+Queue-based BFS – Still explores the entire connected area, but without deep call stacks.
+
+Constant memory overhead – Only uses a small queue for cells to visit.
