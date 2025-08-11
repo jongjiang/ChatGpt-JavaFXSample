@@ -248,11 +248,15 @@ public class CloverleafSim extends JFrame {
             // 3) 前進：將速度換算成路徑比例上的位移 (除以路徑長度)
             for (Car c : cars) {
                 c.s = (c.s + (c.speed * dt) / c.path.length);
-                if (c.s > 0.7) {
+                if (c.s > 0.7 && c.s < 0.73) {
                     // 走到路徑末端：決定下一段路徑 (留在主線或轉入/轉出) ?
                     chooseNextPath(c);
                     //c.s -= 1; // 進入下一段後，將 s 回到 [0,1)
                     c.speed *= 40; //降速
+                }
+                
+                if ((c.path.name.startsWith("EW") || c.path.name.startsWith("NS")) && c.s >= 1.0) {
+                	c.s -= 1.0;
                 }
             }
         }
@@ -274,12 +278,16 @@ public class CloverleafSim extends JFrame {
             
             if (n.equals("EW_East")) {
                 c.path = takeRamp ? pickByPrefix("Conn_EB_to_Ramp") : c.path;
+                if (!takeRamp) c.s = 0.73;
             } else if (n.equals("EW_West")) {
                 c.path = takeRamp ? pickByPrefix("Conn_WB_to_Ramp") : c.path;
+                if (!takeRamp) c.s = 0.73;
             } else if (n.equals("NS_South")) {
                 c.path = takeRamp ? pickByPrefix("Conn_SB_to_Ramp") : c.path;
+                if (!takeRamp) c.s = 0.73;
             } else if (n.equals("NS_North")) {
                 c.path = takeRamp ? pickByPrefix("Conn_NB_to_Ramp") : c.path;
+                if (!takeRamp) c.s = 0.73;
             } else if (n.contains("Conn_") || n.contains("Ramp_")) {
             	  // 連接段/匝道/合流段：依名稱推導下一段
                 if (n.contains("to_Ramp")) {
