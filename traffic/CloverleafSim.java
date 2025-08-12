@@ -256,7 +256,7 @@ public class CloverleafSim extends JFrame {
                 }
                 
                 if ((c.path.name.startsWith("EW") || c.path.name.startsWith("NS")) && c.s >= 1.0) {
-                	c.s -= 1.0;
+                	c.s = 0;
                 }
             }
         }
