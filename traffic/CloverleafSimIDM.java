@@ -348,17 +348,30 @@ public class CloverleafSimIDM extends JFrame {
 				if (c.s >= 0.98) {
 					Lane nxt = chain.get(0);
 
-					// 用幾何交點決定併入 s
+					// 先用幾何交點估個起點，再在一小段視窗內搜尋可安全插入的 s
 					Double sHit = mergeSAtIntersection(c.lane.path, nxt.path);
-
-					if (sHit != null && gapOK(c, nxt, sHit)) { // 用你的 gap 檢查（見之前的 gapOK）
-						c.lane = nxt;
-						c.s = sHit;
-						if (c.v < 8)
-							c.v = 8; // 可選：給點初速
+					Double sCand = null;
+					if (sHit != null) {
+						double sMin = Math.max(0.02, sHit - 0.05);
+						double sMax = Math.min(0.20, sHit + 0.05);
+						sCand = findSafeMergeS(c, nxt, sMin, sMax, 9);
 					} else {
-						c.s = 0.985;
-						c.v = 0; // 等下一個合流窗口
+						sCand = findSafeMergeS(c, nxt, 0.02, 0.18, 9);
+					}
+
+					if (sCand != null && gapOK(c, nxt, sCand)) {
+						Lane from = c.lane;
+						c.lane = nxt;
+						c.s = sCand;
+						if (c.v < 8) c.v = 8;
+
+						// 視覺平滑補間
+						c.animFromLane = from;
+						c.animT = 0.0;
+					} else {
+						// 夾住尾端、保留微速等窗口
+						c.s = 0.992;
+						c.v = Math.max(2.0, c.v * 0.5);
 					}
 				}
 				return;
@@ -382,20 +395,31 @@ public class CloverleafSimIDM extends JFrame {
 
 				if (entry != null) {
 					Double sHit = mergeSAtIntersection(c.lane.path, entry.path); // 直線→入口的交點
+					Double sCand = null;
+					if (sHit != null) {
+						double sMin = Math.max(0.02, sHit - 0.05);
+						double sMax = Math.min(0.20, sHit + 0.05);
+						sCand = findSafeMergeS(c, entry, sMin, sMax, 9);
+					} else {
+						sCand = findSafeMergeS(c, entry, 0.02, 0.18, 9);
+					}
 
-					if (sHit != null && gapOK(c, entry, sHit)) {
+					if (sCand != null && gapOK(c, entry, sCand)) {
+						Lane from = c.lane;
 						c.lane = entry;
-						c.s = sHit;
-						if (c.v < 8)
-							c.v = 8;
+						c.s = sCand;
+						if (c.v < 8) c.v = 8;
+
+						// 視覺補間，避免直線→entry 的瞬間跳點
+						c.animFromLane = from;
+						c.animT = 0.0;
 					} else if (c.s >= 0.98) {
-						c.s = 0.985;
-						c.v = 0;
+						c.s = 0.992;
+						c.v = Math.max(2.0, c.v * 0.5);
 					}
 				}
 			}
 		}
-
 
 
 		/** 在目標車道 target 的 s≈sOnTarget 處，檢查前後最接近車是否留有足夠安全距離。 */
@@ -527,10 +551,6 @@ public class CloverleafSimIDM extends JFrame {
 		    // NEW: 冷卻/動畫時間流逝
 		    if (c.laneCooldown > 0) c.laneCooldown -= dt;
 		    if (c.animFromLane != null) c.animT = Math.min(1.0, c.animT + dt / 0.35); // 0.35s 動畫
-		    
-		    c.advance(dt);
-		    wrapOrRecycle(c);
-		    followRoute(c);
 			}
 			
 			// 1) 生成車輛（達時間門檻且未達上限）
@@ -576,7 +596,7 @@ public class CloverleafSimIDM extends JFrame {
 			}
 			invokeAll(tasks);
 
-			// 6) 推進位置並處理超出邊界；同時在這一步做路段接續/入口判斷
+			// 6) 單次推進位置，並交給 wrapOrRecycle 與 followRoute 處理
 			synchronized (cars) {
 				for (Car c : cars) {
 					c.advance(dt);
@@ -1134,15 +1154,9 @@ public class CloverleafSimIDM extends JFrame {
 			return lane.path.headingAt(s);
 		}
 
-		// 依速度與 dt 推進 s；並做循環處理
+		// 依速度與 dt 推進 s；wrap/夾住/回圈統一交給 World.wrapOrRecycle()
 		void advance(double dt) {
 			s += (v * dt) / lane.path.length;
-			if (s >= 1.0) {
-				s = 0;
-				v = 10;
-			} else if (s < 0.0) {
-				s += 1.0;
-			}
 		}
 	}
 
