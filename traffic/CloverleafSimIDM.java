@@ -280,6 +280,7 @@ public class CloverleafSimIDM extends JFrame {
 			this.cy = H / 2.0;
 			worldBounds = new Rectangle2D.Double(0, 0, W, H);
 			buildGeometry(); // 建立道路幾何與車道
+			buildRouteGraph(); // 建立路徑圖（entry→ramp→exit→目標直線）
 		}
 
 		/** 重置世界：清空車輛與生成計數器。 */
@@ -289,39 +290,35 @@ public class CloverleafSimIDM extends JFrame {
 		}
 
 		// ------------------ Route Graph ------------------
-		// 路徑圖：定義從某車道離開後，下一個允許接續的車道（簡化只取第一條）
-    Map<Lane, List<Lane>> routeGraph = new HashMap<>();
-    
-		void buildRouteGraph() {
-			// 將每條 Lane 放進圖，並建立可到達關係（有向邊）
-			for (Lane l : lanes)
-				routeGraph.put(l, new ArrayList<>());
+		// 路徑圖：定義從某車道離開後，下一個允許接續的車道（entry→ramp→exit→目標直線）
+		Map<Lane, List<Lane>> routeGraph = new HashMap<>();
 
-			// 例：東向外側 → 進入 R1 → R1 弧 → R1 出口 → 北向外側
-			connect("EW_East_C_off", "Connect_EB_R1");
+		void buildRouteGraph() {
+			routeGraph.clear();
+			for (Lane l : lanes) routeGraph.put(l, new ArrayList<>());
+
+			// EB -> NB
 			connect("Connect_EB_R1", "Ramp_EB_to_NB");
 			connect("Ramp_EB_to_NB", "Connect_R1_NB");
 			connect("Connect_R1_NB", "NS_North_C_off");
 
-			connect("NS_North_C_off", "Connect_NB_R2");
+			// NB -> WB
 			connect("Connect_NB_R2", "Ramp_NB_to_WB");
 			connect("Ramp_NB_to_WB", "Connect_R2_WB");
 			connect("Connect_R2_WB", "EW_West_C_off");
 
-			connect("EW_West_C_off", "Connect_WB_R3");
+			// WB -> SB
 			connect("Connect_WB_R3", "Ramp_WB_to_SB");
 			connect("Ramp_WB_to_SB", "Connect_R3_SB");
 			connect("Connect_R3_SB", "NS_South_C_off");
 
-			connect("NS_South_C_off", "Connect_SB_R4");
+			// SB -> EB
 			connect("Connect_SB_R4", "Ramp_SB_to_EB");
 			connect("Ramp_SB_to_EB", "Connect_R4_EB");
 			connect("Connect_R4_EB", "EW_East_C_off");
 		}
 
-		/**
-		 * 幫助函式：將名稱前綴相符的車道連成 from → to。
-		 */
+		/** 幫助函式：將名稱前綴相符的車道連成 from → to（以 Lane 為 key/value）。 */
 		void connect(String fromName, String toName) {
 			Lane from = findLaneByName(fromName);
 			Lane to = findLaneByName(toName);
@@ -339,89 +336,185 @@ public class CloverleafSimIDM extends JFrame {
 			return null;
 		}
 
-		/** 若車輛到達當前車道末端（s>=0.7），則依路徑圖切換到下一條車道。*/
+		/**
+		 * 依決策與安全距離將車輛切換路段：
+		 * - 若車輛在直線且 takeRamp=true，於末端附近嘗試切到 entry（通過 canMergeInto）
+		 * - 若車輛已在 entry / ramp / exit，於段尾嘗試接到下一段（通過 canMergeInto）
+		 */
 		void followRoute(Car c) {
-			if (c.s >= 0.7 && routeGraph.containsKey(c.lane.path.name)) {
-				List<Lane> options = routeGraph.get(c.lane.path.name);
-				if (!options.isEmpty()) {
-					c.lane = options.get(0); // 目前簡化：總是選第一條
-					c.s = 0.0;
+			// A) 已在 entry/ramp/exit/connector：用 routeGraph 串接
+			List<Lane> chain = routeGraph.get(c.lane);
+			if (chain != null && !chain.isEmpty()) {
+				if (c.s >= 0.98) {
+					Lane nxt = chain.get(0);
+
+					// 用幾何交點決定併入 s
+					Double sHit = mergeSAtIntersection(c.lane.path, nxt.path);
+
+					if (sHit != null && gapOK(c, nxt, sHit)) { // 用你的 gap 檢查（見之前的 gapOK）
+						c.lane = nxt;
+						c.s = sHit;
+						if (c.v < 8)
+							c.v = 8; // 可選：給點初速
+					} else {
+						c.s = 0.985;
+						c.v = 0; // 等下一個合流窗口
+					}
+				}
+				return;
+			}
+
+			// B) 還在直線（決定是否上匝道）
+			if (!c.lane.path.isStraight)
+				return;
+
+			if (c.takeRamp && c.s >= 0.65) {
+				Lane entry = null;
+				String n = c.lane.path.name;
+				if (n.startsWith("EW_East_C"))
+					entry = findLaneByName("Connect_EB_R1");
+				else if (n.startsWith("NS_North_C"))
+					entry = findLaneByName("Connect_NB_R2");
+				else if (n.startsWith("EW_West_C"))
+					entry = findLaneByName("Connect_WB_R3");
+				else if (n.startsWith("NS_South_C"))
+					entry = findLaneByName("Connect_SB_R4");
+
+				if (entry != null) {
+					Double sHit = mergeSAtIntersection(c.lane.path, entry.path); // 直線→入口的交點
+
+					if (sHit != null && gapOK(c, entry, sHit)) {
+						c.lane = entry;
+						c.s = sHit;
+						if (c.v < 8)
+							c.v = 8;
+					} else if (c.s >= 0.98) {
+						c.s = 0.985;
+						c.v = 0;
+					}
 				}
 			}
 		}
 
-		/** 建立道路幾何（主幹道直線 + 四個匝道弧線 + 進出連接段），並建立對應的 Lane。 */
+
+
+		/** 在目標車道 target 的 s≈sOnTarget 處，檢查前後最接近車是否留有足夠安全距離。 */
+		boolean canMergeInto(Car me, Lane target, double sOnTarget) {
+			Car ahead = null, behind = null;
+			double bestAhead = Double.POSITIVE_INFINITY, bestBehind = Double.POSITIVE_INFINITY;
+
+			synchronized (cars) {
+				for (Car c : cars) if (c.lane == target && c != me) {
+					double ds = c.s - sOnTarget;
+					if (ds < 0) ds += 1.0;
+					double dpx = ds * target.path.length;
+					if (dpx >= 0 && dpx < bestAhead) { bestAhead = dpx; ahead = c; }
+
+					double dsb = sOnTarget - c.s;
+					if (dsb < 0) dsb += 1.0;
+					double dpxb = dsb * target.path.length;
+					if (dpxb >= 0 && dpxb < bestBehind) { bestBehind = dpxb; behind = c; }
+				}
+			}
+			double vM = Math.max(1.0, me.v);
+			double sStarMe = s0 + Math.max(0, vM * T);
+			double sStarBehind = s0 + Math.max(0, (behind != null ? behind.v : vM) * T);
+			boolean okAhead  = (ahead  == null) || (bestAhead  > sStarMe * 1.05); //1.2
+			boolean okBehind = (behind == null) || (bestBehind > sStarBehind * 1.05); //1.2
+			return okAhead && okBehind;
+		}
+
+		/** 建立道路幾何（主幹直線 + 四個匝道弧線 + 進出連接段），並建立對應的 Lane 與相鄰關係。 */
 		void buildGeometry() {
 			int edge = 60;
-      // 主幹道：東西向、南北向，各方向兩車道（以中心線平移得到內外側）
-      RoadPath eastCenter = RoadPath.straight(W-edge, cy + laneWidth*1.2, edge, cy + laneWidth*1.2, "EW_East_C");
-      RoadPath eastLeft   = eastCenter.offset( laneWidth/2);   // 東向內側
-      RoadPath eastRight  = eastCenter.offset(-laneWidth/2);   // 東向外側
+			// 主幹道：東西向、南北向，各方向兩車道（以中心線平移得到內外側）
+			RoadPath eastCenter = RoadPath.straight(W-edge, cy + laneWidth*1.2, edge, cy + laneWidth*1.2, "EW_East_C");
+			RoadPath eastLeft   = eastCenter.offset( laneWidth/2);   // 東向內側
+			RoadPath eastRight  = eastCenter.offset(-laneWidth/2);   // 東向外側
 
-      RoadPath westCenter = RoadPath.straight(edge, cy - laneWidth*1.2, W-edge, cy - laneWidth*1.2, "EW_West_C");
-      RoadPath westLeft   = westCenter.offset( laneWidth/2);   // 西向內側
-      RoadPath westRight  = westCenter.offset(-laneWidth/2);   // 西向外側
+			RoadPath westCenter = RoadPath.straight(edge, cy - laneWidth*1.2, W-edge, cy - laneWidth*1.2, "EW_West_C");
+			RoadPath westLeft   = westCenter.offset( laneWidth/2);   // 西向內側
+			RoadPath westRight  = westCenter.offset(-laneWidth/2);   // 西向外側
 
-      RoadPath southCenter = RoadPath.straight(cx - laneWidth*1.2, edge, cx - laneWidth*1.2, H-edge, "NS_South_C");
-      RoadPath southLeft   = southCenter.offset( laneWidth/2); // 南向內側
-      RoadPath southRight  = southCenter.offset(-laneWidth/2); // 南向外側
+			RoadPath southCenter = RoadPath.straight(cx - laneWidth*1.2, edge, cx - laneWidth*1.2, H-edge, "NS_South_C");
+			RoadPath southLeft   = southCenter.offset( laneWidth/2); // 南向內側
+			RoadPath southRight  = southCenter.offset(-laneWidth/2); // 南向外側
 
-      RoadPath northCenter = RoadPath.straight(cx + laneWidth*1.2, H-edge, cx + laneWidth*1.2, edge, "NS_North_C");
-      RoadPath northLeft   = northCenter.offset( laneWidth/2); // 北向內側
-      RoadPath northRight  = northCenter.offset(-laneWidth/2); // 北向外側
+			RoadPath northCenter = RoadPath.straight(cx + laneWidth*1.2, H-edge, cx + laneWidth*1.2, edge, "NS_North_C");
+			RoadPath northLeft   = northCenter.offset( laneWidth/2); // 北向內側
+			RoadPath northRight  = northCenter.offset(-laneWidth/2); // 北向外側
 
-      // 四個匝道（外圓弧）
-      RoadPath r1 = RoadPath.arc(cx + laneWidth, cy + laneWidth, outerRadius, 30, 60, true, "Ramp_EB_to_NB");   //Q4
-      RoadPath r2 = RoadPath.arc(cx + laneWidth, cy - laneWidth, outerRadius, 300, 330, true, "Ramp_NB_to_WB"); //Q1
-      RoadPath r3 = RoadPath.arc(cx - laneWidth, cy - laneWidth, outerRadius, 210, 240, true, "Ramp_WB_to_SB"); //Q2
-      RoadPath r4 = RoadPath.arc(cx - laneWidth, cy + laneWidth, outerRadius, 120, 150, true, "Ramp_SB_to_EB"); //Q3
+			// 四個匝道（外圓弧）
+			RoadPath r1 = RoadPath.arc(cx + laneWidth, cy + laneWidth, outerRadius, 30, 60, true, "Ramp_EB_to_NB");   //Q4
+			RoadPath r2 = RoadPath.arc(cx + laneWidth, cy - laneWidth, outerRadius, 300, 330, true, "Ramp_NB_to_WB"); //Q1
+			RoadPath r3 = RoadPath.arc(cx - laneWidth, cy - laneWidth, outerRadius, 210, 240, true, "Ramp_WB_to_SB"); //Q2
+			RoadPath r4 = RoadPath.arc(cx - laneWidth, cy + laneWidth, outerRadius, 120, 150, true, "Ramp_SB_to_EB"); //Q3
 
-      // 各匝道的進入／離開連接線（簡化為直線）
-      double a0 = Math.toRadians(30);
-      double a1 = Math.toRadians(60);
-      RoadPath r1Entry = RoadPath.straight(edge + (W - edge * 2)*0.7, cy + laneWidth*1.7, 
-      		                                 cx + laneWidth + outerRadius * Math.cos(a0), cy + laneWidth + outerRadius * Math.sin(a0), "Connect_EB_R1");
-      RoadPath r1Exit  = RoadPath.straight(cx + laneWidth + outerRadius * Math.cos(a1), cy + laneWidth + outerRadius * Math.sin(a1), 
-      		                                 cx + laneWidth*1.7, edge + (H - edge * 2) * 0.7, "Connect_R1_NB");
+			// 各匝道的進入／離開連接線（簡化為直線）
+			double a0 = Math.toRadians(30);
+			double a1 = Math.toRadians(60);
+			RoadPath r1Entry = RoadPath.straight(edge + (W - edge * 2)*0.7, cy + laneWidth*1.7, 
+			                                     cx + laneWidth + outerRadius * Math.cos(a0), cy + laneWidth + outerRadius * Math.sin(a0), "Connect_EB_R1");
+			RoadPath r1Exit  = RoadPath.straight(cx + laneWidth + outerRadius * Math.cos(a1), cy + laneWidth + outerRadius * Math.sin(a1), 
+			                                     cx + laneWidth*1.7, edge + (H - edge * 2) * 0.7, "Connect_R1_NB");
 
-      a0 = Math.toRadians(300); 
-      a1 = Math.toRadians(330);
-      RoadPath r2Entry = RoadPath.straight(cx + laneWidth*1.7, edge + (H - edge * 2) * 0.3,  
-      		                                 cx + laneWidth + outerRadius * Math.cos(a0), cy - laneWidth + outerRadius * Math.sin(a0), "Connect_NB_R2");
-      RoadPath r2Exit  = RoadPath.straight(cx + laneWidth + outerRadius * Math.cos(a1), cy - laneWidth + outerRadius * Math.sin(a1),
-      		                                 edge + (W - edge * 2) * 0.7, cy - laneWidth*1.7, "Connect_R2_WB");
+			a0 = Math.toRadians(300); 
+			a1 = Math.toRadians(330);
+			RoadPath r2Entry = RoadPath.straight(cx + laneWidth*1.7, edge + (H - edge * 2) * 0.3,  
+			                                     cx + laneWidth + outerRadius * Math.cos(a0), cy - laneWidth + outerRadius * Math.sin(a0), "Connect_NB_R2");
+			RoadPath r2Exit  = RoadPath.straight(cx + laneWidth + outerRadius * Math.cos(a1), cy - laneWidth + outerRadius * Math.sin(a1),
+			                                     edge + (W - edge * 2) * 0.7, cy - laneWidth*1.7, "Connect_R2_WB");
 
-      a0 = Math.toRadians(210); 
-      a1 = Math.toRadians(240);
-      RoadPath r3Entry = RoadPath.straight(edge + (W - edge * 2)*0.3, cy - laneWidth*1.7,  
-      		                                 cx - laneWidth + outerRadius * Math.cos(a0), cy - laneWidth + outerRadius * Math.sin(a0), "Connect_WB_R3");
-      RoadPath r3Exit  = RoadPath.straight(cx - laneWidth + outerRadius * Math.cos(a1), cy - laneWidth + outerRadius * Math.sin(a1), 
-      		                                 cx - laneWidth*1.7, edge + (H - edge * 2) * 0.3, "Connect_R3_SB");
+			a0 = Math.toRadians(210); 
+			a1 = Math.toRadians(240);
+			RoadPath r3Entry = RoadPath.straight(edge + (W - edge * 2)*0.3, cy - laneWidth*1.7,  
+			                                     cx - laneWidth + outerRadius * Math.cos(a0), cy - laneWidth + outerRadius * Math.sin(a0), "Connect_WB_R3");
+			RoadPath r3Exit  = RoadPath.straight(cx - laneWidth + outerRadius * Math.cos(a1), cy - laneWidth + outerRadius * Math.sin(a1), 
+			                                     cx - laneWidth*1.7, edge + (H - edge * 2) * 0.3, "Connect_R3_SB");
 
-      a0 = Math.toRadians(120); 
-      a1 = Math.toRadians(150);
-      RoadPath r4Entry = RoadPath.straight(cx - laneWidth*1.7, edge + (H - edge * 2) * 0.7, 
-      		                                 cx - laneWidth + outerRadius * Math.cos(a0), cy + laneWidth + outerRadius * Math.sin(a0), "Connect_SB_R4");
-      RoadPath r4Exit  = RoadPath.straight(cx - laneWidth + outerRadius * Math.cos(a1), cy + laneWidth + outerRadius * Math.sin(a1), 
-      		                                 edge + (W - edge * 2)*0.3, cy + laneWidth*1.7, "Connect_R4_EB");
+			a0 = Math.toRadians(120); 
+			a1 = Math.toRadians(150);
+			RoadPath r4Entry = RoadPath.straight(cx - laneWidth*1.7, edge + (H - edge * 2) * 0.7, 
+			                                     cx - laneWidth + outerRadius * Math.cos(a0), cy + laneWidth + outerRadius * Math.sin(a0), "Connect_SB_R4");
+			RoadPath r4Exit  = RoadPath.straight(cx - laneWidth + outerRadius * Math.cos(a1), cy + laneWidth + outerRadius * Math.sin(a1), 
+			                                     edge + (W - edge * 2)*0.3, cy + laneWidth*1.7, "Connect_R4_EB");
 
-      // 將所有路徑加入清單（繪圖時用）
-      Collections.addAll(paths, eastLeft, eastRight, westLeft, westRight,
-              southLeft, southRight, northLeft, northRight,
-              r1Entry, r1, r1Exit,
-              r2Entry, r2, r2Exit,
-              r3Entry, r3, r3Exit,
-              r4Entry, r4, r4Exit);
+			// 將所有路徑加入清單（繪圖時用）
+			Collections.addAll(paths, eastLeft, eastRight, westLeft, westRight,
+					southLeft, southRight, northLeft, northRight,
+					r1Entry, r1, r1Exit,
+					r2Entry, r2, r2Exit,
+					r3Entry, r3, r3Exit,
+					r4Entry, r4, r4Exit);
 
-      // 建立對應的 Lane（每條 RoadPath 一個 Lane）
-      lanes.add(new Lane(eastLeft)); lanes.add(new Lane(eastRight));
-      lanes.add(new Lane(westLeft)); lanes.add(new Lane(westRight));
-      lanes.add(new Lane(southLeft)); lanes.add(new Lane(southRight));
-      lanes.add(new Lane(northLeft)); lanes.add(new Lane(northRight));
-      lanes.add(new Lane(r1Entry)); lanes.add(new Lane(r1)); lanes.add(new Lane(r1Exit)); 
-      lanes.add(new Lane(r2Entry)); lanes.add(new Lane(r2)); lanes.add(new Lane(r2Exit));
-      lanes.add(new Lane(r3Entry)); lanes.add(new Lane(r3)); lanes.add(new Lane(r3Exit));
-      lanes.add(new Lane(r4Entry)); lanes.add(new Lane(r4)); lanes.add(new Lane(r4Exit));
+			// ---- 建立 Lane 實例（保留參考，方便設 adjacents）----
+			Lane lnEastLeft  = new Lane(eastLeft);   Lane lnEastRight  = new Lane(eastRight);
+			Lane lnWestLeft  = new Lane(westLeft);   Lane lnWestRight  = new Lane(westRight);
+			Lane lnSouthLeft = new Lane(southLeft);  Lane lnSouthRight = new Lane(southRight);
+			Lane lnNorthLeft = new Lane(northLeft);  Lane lnNorthRight = new Lane(northRight);
+
+			Lane lnR1Entry = new Lane(r1Entry); Lane lnR1 = new Lane(r1); Lane lnR1Exit = new Lane(r1Exit);
+			Lane lnR2Entry = new Lane(r2Entry); Lane lnR2 = new Lane(r2); Lane lnR2Exit = new Lane(r2Exit);
+			Lane lnR3Entry = new Lane(r3Entry); Lane lnR3 = new Lane(r3); Lane lnR3Exit = new Lane(r3Exit);
+			Lane lnR4Entry = new Lane(r4Entry); Lane lnR4 = new Lane(r4); Lane lnR4Exit = new Lane(r4Exit);
+
+			// 放入列表
+			Collections.addAll(lanes,
+					lnEastLeft, lnEastRight,
+					lnWestLeft, lnWestRight,
+					lnSouthLeft, lnSouthRight,
+					lnNorthLeft, lnNorthRight,
+					lnR1Entry, lnR1, lnR1Exit,
+					lnR2Entry, lnR2, lnR2Exit,
+					lnR3Entry, lnR3, lnR3Exit,
+					lnR4Entry, lnR4, lnR4Exit);
+
+			// ---- 設定直線雙線的左右相鄰（僅直線允許 MOBIL 變道）----
+			lnEastLeft.adjRight = lnEastRight; lnEastRight.adjLeft = lnEastLeft;
+			lnWestLeft.adjRight = lnWestRight; lnWestRight.adjLeft = lnWestLeft;
+			lnSouthLeft.adjRight = lnSouthRight; lnSouthRight.adjLeft = lnSouthLeft;
+			lnNorthLeft.adjRight = lnNorthRight; lnNorthRight.adjLeft = lnNorthLeft;
+			// 匝道不設相鄰（不變道）
 		}
 
 		/**
@@ -429,6 +522,17 @@ public class CloverleafSimIDM extends JFrame {
 		 * 1) 生成新車 → 2) 建立 QuadTree → 3) 搜尋前後鄰車 → 4) MOBIL 判斷變道 → 5) IDM 加速度與積分 → 6) 推進位置與回收。
 		 */
 		void update(double dt, boolean mobilEnabled) {
+			
+			for (Car c : cars) {
+		    // NEW: 冷卻/動畫時間流逝
+		    if (c.laneCooldown > 0) c.laneCooldown -= dt;
+		    if (c.animFromLane != null) c.animT = Math.min(1.0, c.animT + dt / 0.35); // 0.35s 動畫
+		    
+		    c.advance(dt);
+		    wrapOrRecycle(c);
+		    followRoute(c);
+			}
+			
 			// 1) 生成車輛（達時間門檻且未達上限）
 			spawnAcc += dt;
 			if (cars.size() < maxCars && spawnAcc >= spawnEverySec) {
@@ -472,11 +576,12 @@ public class CloverleafSimIDM extends JFrame {
 			}
 			invokeAll(tasks);
 
-			// 6) 推進位置並處理超出邊界（直線採用循環包回、匝道自然回圈）
+			// 6) 推進位置並處理超出邊界；同時在這一步做路段接續/入口判斷
 			synchronized (cars) {
 				for (Car c : cars) {
 					c.advance(dt);
 					wrapOrRecycle(c);
+					followRoute(c);
 				}
 			}
 		}
@@ -493,22 +598,31 @@ public class CloverleafSimIDM extends JFrame {
 		/**
 		 * 直線道：s 超出 [0,1) 時循環回包（實現無限長直線效果）。
 		 * 匝道弧線：s>=1 時回到 0（形成回圈）。
-		 * 另外若啟用路徑圖，於末端切換到下一車道。
 		 */
 		void wrapOrRecycle(Car c) {
-			if (c.lane.path.isStraight) {
-				if (c.s > 1.0)
-					c.s = 0;
-				else if (c.s < 0)
-					c.s += 1.0;
-			} else {
-				if (c.s > 1.0)
-					c.s = 1.0;
-			}
-			followRoute(c);
-		}
+	    // 只要這條 Lane 在 routeGraph 中「有」下一段，表示它是有限段（entry/ramp/exit/connector）
+	    boolean finiteSegment = routeGraph.containsKey(c.lane) && !routeGraph.get(c.lane).isEmpty();
 
-		/** 隨機在主幹直線道生成一輛車（初始 s 落在 [0,0.2)）。 */
+	    if (c.lane.path.isStraight) {
+	        if (finiteSegment) {
+	            // NEW: 有下一段 → 不 wrap，夾住在尾端附近等合流
+	            if (c.s > 0.995) c.s = 0.995;
+	        } else {
+	            // 無下一段的無限直線（主線）才循環
+	            if (c.s > 1.0) c.s = 0;
+	            else if (c.s < 0) c.s += 1.0;
+	        }
+	    } else {
+	        // 弧線（匝道本身通常也有下一段），同理：有下一段就別回繞
+	        if (finiteSegment) {
+	            if (c.s > 0.995) c.s = 0.995;
+	        } else {
+	            if (c.s > 1.0) c.s = 0.0; // 保留原本回圈行為
+	        }
+	    }
+	}
+
+		/** 隨機在主幹直線道生成一輛車（初始 s 落在 [0,0.2)）；並隨機決定是否偏好走匝道。 */
 		void spawnCar() {
 			List<Lane> spawnable = new ArrayList<>();
 			for (Lane l : lanes)
@@ -519,6 +633,8 @@ public class CloverleafSimIDM extends JFrame {
 			c.s = rng.nextDouble() * 0.2;
 			c.v = v0 * (0.4 + 0.2 * rng.nextDouble()); // 初速略低於期望速度
 			c.color = randomColor(rng);
+			// 60% 直行、40% 走匝道（可調整）
+			c.takeRamp = (rng.nextDouble() < 0.4);
 			synchronized (cars) {
 				cars.add(c);
 			}
@@ -573,7 +689,7 @@ public class CloverleafSimIDM extends JFrame {
 					double back = laneDistanceAhead(other, me);
 					if (back >= 0 && back < fld) {
 						fld = back;
-						follLeft = me; // 註：此處簡化處理，僅記錄距離
+						follLeft = me; // 簡化：僅記錄距離
 					}
 				}
 				if (me.lane.adjRight != null && other.lane == me.lane.adjRight) {
@@ -585,11 +701,12 @@ public class CloverleafSimIDM extends JFrame {
 					double back = laneDistanceAhead(other, me);
 					if (back >= 0 && back < frd) {
 						frd = back;
-						follRight = me; // 註：此處簡化處理，僅記錄距離
+						follRight = me; // 簡化：僅記錄距離
 					}
 				}
 			}
-			return new NeighborInfo(leaderSame, follSame, leaderLeft, follLeft, leaderRight, follRight, leaderSameDist, follSameDist, ld, fld, rd, frd);
+			return new NeighborInfo(leaderSame, follSame, leaderLeft, follLeft, leaderRight, follRight,
+					leaderSameDist, follSameDist, ld, fld, rd, frd);
 		}
 
 		/** 回傳 a 車看見 b 車的前向距離（同車道、以 s 參數差轉換為長度）。*/
@@ -610,17 +727,37 @@ public class CloverleafSimIDM extends JFrame {
 				order = new ArrayList<>(cars);
 			}
 			Collections.shuffle(order, rng);
+
 			for (Car c : order) {
+				// NEW: 冷卻中就跳過
+				if (c.laneCooldown > 0)
+					continue;
+
+				boolean changed = false;
 				Lane left = c.lane.adjLeft;
 				Lane right = c.lane.adjRight;
+
 				if (left != null && considerLaneChange(c, left, neigh, true)) {
-					c.lane = left;
+					startLaneChange(c, left); // NEW
+					changed = true;
+				} else if (right != null && considerLaneChange(c, right, neigh, false)) {
+					startLaneChange(c, right); // NEW
+					changed = true;
+				}
+
+				// NEW: 一幀只處理一次，避免連續兩次切換
+				if (changed)
 					continue;
-				}
-				if (right != null && considerLaneChange(c, right, neigh, false)) {
-					c.lane = right;
-				}
 			}
+		}
+		
+		void startLaneChange(Car c, Lane target) {
+			Lane from = c.lane;
+			c.lane = target;
+			c.laneCooldown = Math.max(c.laneCooldown, 1.8); // 約 1.8s 冷卻，可依喜好 1.2~3.0
+			// 視覺補間：從舊線過渡到新線
+			c.animFromLane = from;
+			c.animT = 0.0;
 		}
 
 		/**
@@ -629,6 +766,13 @@ public class CloverleafSimIDM extends JFrame {
 		 * 2) 動機值：IDM 估算變道前後自身加速度差 + 禮讓加權他人影響 > 門檻。
 		 */
 		boolean considerLaneChange(Car me, Lane target, Map<Car, NeighborInfo> neigh, boolean toLeft) {
+			
+			boolean hasNext = routeGraph.containsKey(me.lane) && !routeGraph.get(me.lane).isEmpty();
+			if (hasNext) return false; // 在 entry/ramp/exit 等有限段不上 MOBIL
+			
+	    if (!me.lane.path.isStraight || !target.path.isStraight) return false;
+	    if (me.laneCooldown > 0) return false; // NEW: 冷卻
+			
 			if (!me.lane.path.isStraight || !target.path.isStraight)
 				return false; // 簡化：僅在直線上變道
 			// 安全性：計算目標車道之後車（newFollower）是否需過度煞車
@@ -651,7 +795,7 @@ public class CloverleafSimIDM extends JFrame {
 			double aGo = accIDM(me, newLeader, sNew);
 
 			// 影響跟車者（近似）
-			double aOldFollowerDelta = 0; // 此處簡化未計算同車道舊後車
+			double aOldFollowerDelta = 0; // 簡化未計算舊後車
 			double aNewFollowerDelta = 0;
 			if (newFollower != null) {
 				double aBefore = accIDM(newFollower, newLeader, distAlong(newFollower, newLeader));
@@ -659,7 +803,11 @@ public class CloverleafSimIDM extends JFrame {
 				aNewFollowerDelta = aAfter - aBefore;
 			}
 			double incentive = (aGo - aStay) + politeness * (aOldFollowerDelta + aNewFollowerDelta);
-			return incentive > aLaneChangeThreshold;
+			
+	    // NEW: 遲滯（hysteresis）：提高觸發門檻，避免邊界振盪
+	    double hysteresis = 0.15 * 40; // 約 6 px/s^2 的額外門檻
+			
+	    return incentive > (aLaneChangeThreshold + hysteresis);
 		}
 
 		/** 找出 ref 在指定車道上最近的前車。*/
@@ -715,8 +863,8 @@ public class CloverleafSimIDM extends JFrame {
 		// ------------------- IDM -------------------
 		/** 依 IDM 計算加速度並以顯式歐拉積分更新速度與位置參數 s。*/
 		void stepIDM(Car c, NeighborInfo N, double dt) {
-			Car leader = N.leaderSame;
-			double s = N.leaderSameDist; // 與前車距離（空間頭距）
+			Car leader = (N != null ? N.leaderSame : null);
+			double s = (N != null ? N.leaderSameDist : Double.POSITIVE_INFINITY); // 與前車距離（空間頭距）
 			double a = accIDM(c, leader, s);
 			// 積分 v 與 s（確保速度非負）
 			c.v += a * dt;
@@ -763,17 +911,187 @@ public class CloverleafSimIDM extends JFrame {
 
 		/** 以車身長寬與朝向繪製一台小車。*/
 		void drawCar(Graphics2D g, Car c) {
-			Point2D pt = c.position();
-			double heading = c.heading();
-			AffineTransform at = g.getTransform();
-			g.translate(pt.getX(), pt.getY());
-			g.rotate(heading);
-			g.setColor(c.color);
-			g.fillRoundRect(-10, -7, 20, 14, 6, 6);
-			g.setColor(new Color(220, 230, 240));
-			g.fillRoundRect(-5, -6, 9, 12, 6, 6); // 車窗
-			g.setTransform(at);
+	    Point2D pt;
+	    double heading;
+
+	    if (c.animFromLane != null && c.animT < 1.0) {
+	        // NEW: 兩條 Lane 在同一個 s 上做空間補間（僅用於視覺，物理仍依目標 lane）
+	        Point2D p0 = c.animFromLane.path.pointAt(c.s);
+	        Point2D p1 = c.lane.path.pointAt(c.s);
+	        double x = RoadPath.lerp(p0.getX(), p1.getX(), c.animT);
+	        double y = RoadPath.lerp(p0.getY(), p1.getY(), c.animT);
+	        pt = new Point2D.Double(x, y);
+
+	        double h0 = c.animFromLane.path.headingAt(c.s);
+	        double h1 = c.lane.path.headingAt(c.s);
+	        // 簡單線性補間方向（足夠平滑）
+	        heading = h0 + (h1 - h0) * c.animT;
+
+	        if (c.animT >= 1.0) c.animFromLane = null; // 收尾
+	    } else {
+	        pt = c.position();
+	        heading = c.heading();
+	        c.animFromLane = null; // 防衛
+	    }
+
+	    AffineTransform at = g.getTransform();
+	    g.translate(pt.getX(), pt.getY());
+	    g.rotate(heading);
+	    g.setColor(c.color);
+	    g.fillRoundRect(-10, -7, 20, 14, 6, 6);
+	    g.setColor(new Color(220, 230, 240));
+	    g.fillRoundRect(-5, -6, 9, 12, 6, 6);
+	    g.setTransform(at);
 		}
+		
+		// ---- 幾何工具：向量叉積 ----
+		double cross(double ax, double ay, double bx, double by) {
+		    return ax * by - ay * bx;
+		}
+
+		// ---- 兩線段相交：回傳是否命中與各自的參數 tA/tB（0~1）與交點 ----
+		static class InterResult {
+			boolean hit;
+			double tA, tB;
+			Point2D pt;
+
+			InterResult(boolean h, double ta, double tb, Point2D p) {
+				hit = h;
+				tA = ta;
+				tB = tb;
+				pt = p;
+			}
+		}
+
+		InterResult segIntersect(Point2D a1, Point2D a2, Point2D b1, Point2D b2) {
+			double rX = a2.getX() - a1.getX(), rY = a2.getY() - a1.getY();
+			double sX = b2.getX() - b1.getX(), sY = b2.getY() - b1.getY();
+			double denom = cross(rX, rY, sX, sY);
+			if (Math.abs(denom) < 1e-9)
+				return new InterResult(false, 0, 0, null); // 平行或共線視為不交
+			double qpx = b1.getX() - a1.getX(), qpy = b1.getY() - a1.getY();
+			double t = cross(qpx, qpy, sX, sY) / denom; // a 上的參數
+			double u = cross(qpx, qpy, rX, rY) / denom; // b 上的參數
+			if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+				Point2D pt = new Point2D.Double(a1.getX() + t * rX, a1.getY() + t * rY);
+				return new InterResult(true, t, u, pt);
+			}
+			return new InterResult(false, 0, 0, null);
+		}
+
+		// ---- 從 from 的尾端段 與 to 的起始段 找交點；回傳 to 上的 s（0~1），找不到就回傳投影 s ----
+		Double mergeSAtIntersection(RoadPath from, RoadPath to) {
+			// 掃描範圍：from 最後 24 段，to 前 48 段（可依需要調整）
+			int na = from.pts.size();
+			int nb = to.pts.size();
+			int iStart = Math.max(0, na - 1 - 24);
+			int jEnd = Math.min(nb - 1, 48);
+
+			for (int i = iStart; i < na - 1; i++) {
+				Point2D a1 = from.pts.get(i), a2 = from.pts.get(i + 1);
+				for (int j = 1; j <= jEnd; j++) {
+					Point2D b1 = to.pts.get(j - 1), b2 = to.pts.get(j);
+					InterResult ir = segIntersect(a1, a2, b1, b2);
+					if (ir.hit) {
+						// 交點位於 to 的第 j-1 段，to 上對應的弧長 = segLen[j-1] + u * (segLen[j]-segLen[j-1])
+						double segLen = to.segLen[j] - to.segLen[j - 1];
+						double sLen = to.segLen[j - 1] + ir.tB * Math.max(1e-9, segLen);
+						double s = sLen / Math.max(1e-9, to.length);
+						// 為安全起見，把 s 限制在 to 起點一小段內
+						return Math.max(0.0, Math.min(s, 0.25));
+					}
+				}
+			}
+
+			// 如果沒有精確交點，退而求其次：把 from 終點投影到 to 上，取最近點的 s
+			Point2D tail = from.pts.get(na - 1);
+			return projectPointToPathS(to, tail);
+		}
+
+		// ---- 將點投影到 polyline，回傳對應的 s（0~1） ----
+		Double projectPointToPathS(RoadPath path, Point2D p) {
+			int n = path.pts.size();
+			double bestD2 = Double.POSITIVE_INFINITY;
+			double bestSlen = 0.0;
+
+			for (int i = 0; i < n - 1; i++) {
+				Point2D a = path.pts.get(i), b = path.pts.get(i + 1);
+				double vx = b.getX() - a.getX(), vy = b.getY() - a.getY();
+				double wx = p.getX() - a.getX(), wy = p.getY() - a.getY();
+				double vv = vx * vx + vy * vy;
+				double t = (vv < 1e-9) ? 0.0 : (vx * wx + vy * wy) / vv; // 投影比例
+				if (t < 0)
+					t = 0;
+				else if (t > 1)
+					t = 1;
+				double px = a.getX() + t * vx, py = a.getY() + t * vy;
+				double dx = p.getX() - px, dy = p.getY() - py;
+				double d2 = dx * dx + dy * dy;
+				if (d2 < bestD2) {
+					bestD2 = d2;
+					double seg = path.segLen[i + 1] - path.segLen[i];
+					bestSlen = path.segLen[i] + t * Math.max(1e-9, seg);
+				}
+			}
+			double s = bestSlen / Math.max(1e-9, path.length);
+			return Math.max(0.0, Math.min(s, 1.0));
+		}
+		
+	// 掃描一個插入視窗（預設 0.00~0.15），找第一個安全的 s；找不到回傳 null
+		Double findSafeMergeS(Car me, Lane target, double sStart, double sEnd, int samples) {
+		    double bestS = -1;
+		    for (int i = 0; i < samples; i++) {
+		        double t = (samples == 1) ? 0.0 : (i / (double)(samples - 1));
+		        double sCand = sStart + (sEnd - sStart) * t;
+
+		        if (gapOK(me, target, sCand)) {
+		            return sCand; // 找到就回傳
+		        }
+		    }
+		    return null;
+		}
+
+		// 檢查在 target 車道的 sCand 處是否有足夠前後安全距離
+		boolean gapOK(Car me, Lane target, double sCand) {
+		    Car ahead = null, behind = null;
+		    double bestAhead = Double.POSITIVE_INFINITY, bestBehind = Double.POSITIVE_INFINITY;
+
+		    synchronized (cars) {
+		        for (Car c : cars) if (c.lane == target && c != me) {
+		            // 前方距離
+		            double dsF = c.s - sCand;
+		            if (dsF < 0) dsF += 1.0;
+		            double dpxF = dsF * target.path.length;
+		            if (dpxF >= 0 && dpxF < bestAhead) { bestAhead = dpxF; ahead = c; }
+
+		            // 後方距離
+		            double dsB = sCand - c.s;
+		            if (dsB < 0) dsB += 1.0;
+		            double dpxB = dsB * target.path.length;
+		            if (dpxB >= 0 && dpxB < bestBehind) { bestBehind = dpxB; behind = c; }
+		        }
+		    }
+
+		    // 動態安全距離：考慮相對速差，尾隨車更嚴格一點
+		    double vM = Math.max(1.0, me.v);
+		    double vB = (behind != null ? Math.max(1.0, behind.v) : vM);
+		    double sStarMe     = s0 + Math.max(0, vM * T);
+		    double sStarBehind = s0 + Math.max(0, vB * T);
+
+		    // 放寬係數：前方 1.10、後方 1.20（避免插到後車鼻尖）
+		    boolean okAhead  = (ahead  == null) || (bestAhead  > sStarMe * 1.10);
+		    boolean okBehind = (behind == null) || (bestBehind > sStarBehind * 1.20);
+
+		    // 若我幾乎停住（<= 2 px/s），允許稍微更緊湊的併入（像實務 zipper merge）
+		    if (vM <= 2.0) {
+		        okAhead  = (ahead  == null) || (bestAhead  > sStarMe * 1.05);
+		        okBehind = (behind == null) || (bestBehind > sStarBehind * 1.10);
+		    }
+		    return okAhead && okBehind;
+		}
+
+		
+
 	}
 
 	// =============================== Lane ===============================
@@ -782,7 +1100,7 @@ public class CloverleafSimIDM extends JFrame {
 	 */
 	static class Lane {
 		final RoadPath path;
-		Lane adjLeft, adjRight; // 左右相鄰（此範例未完整連結，保留欄位）
+		Lane adjLeft, adjRight; // 左右相鄰（直線使用）
 
 		public Lane(RoadPath p) {
 			this.path = p;
@@ -798,6 +1116,11 @@ public class CloverleafSimIDM extends JFrame {
 		double s = 0; // 位置參數 path長的比例 [0 1）
 		double v = 0; // 速度（px/s）
 		Color color = Color.CYAN;
+		boolean takeRamp = false; // 是否偏好走匝道
+		double laneCooldown = 0;  // NEW: 變道冷卻秒數
+		// NEW: 視覺平滑（補間）狀態
+		Lane animFromLane = null;
+		double animT = 0;         // 0->1 的補間進度
 
 		public Car(Lane lane) {
 			this.lane = lane;
@@ -891,10 +1214,6 @@ public class CloverleafSimIDM extends JFrame {
 		static RoadPath arc(double cx, double cy, double r, double degStart, double degEnd, boolean clockwise, String name) {
 			int steps = 160;
 			double a0 = Math.toRadians(degStart), a1 = Math.toRadians(degEnd);
-//			if (clockwise && a1 > a0)
-//				a1 -= Math.PI * 2;
-//			if (!clockwise && a1 < a0)
-//				a1 += Math.PI * 2;
 			List<Point2D> l = new ArrayList<>();
 			double a = 0;
 			for (int i = 0; i <= steps; i++) {
@@ -912,9 +1231,7 @@ public class CloverleafSimIDM extends JFrame {
 		 * 視覺上可接受，非幾何嚴格偏移。
 		 */
 		RoadPath offset(double orthogonal) {
-			
 			List<Point2D> out = new ArrayList<>();
-			
 			for (int i = 0; i < pts.size(); i++) {
 				Point2D p = pts.get(i);
 				Point2D t0 = pts.get(Math.max(0, i - 1));
@@ -930,7 +1247,6 @@ public class CloverleafSimIDM extends JFrame {
 				double nx = -dy, ny = dx;
 				out.add(new Point2D.Double(p.getX() + nx * orthogonal, p.getY() + ny * orthogonal));
 			}
-			
 			return new RoadPath(out, name + "_off", this.isStraight);
 		}
 
