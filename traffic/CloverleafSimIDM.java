@@ -314,7 +314,7 @@ public class CloverleafSimIDM extends JFrame {
 			connect("Connect_R2_WB", "EW_West_C_off");
 
 			// WB -> SB
-			connect("EW_East_C_off", "Connect_WB_R3");
+			connect("EW_West_C_off", "Connect_WB_R3");
 			connect("Connect_WB_R3", "Ramp_WB_to_SB");
 			connect("Ramp_WB_to_SB", "Connect_R3_SB");
 			connect("Connect_R3_SB", "NS_South_C_off");
@@ -350,46 +350,79 @@ public class CloverleafSimIDM extends JFrame {
 		 * - 若車輛已在 entry / ramp / exit，於段尾嘗試接到下一段（通過 canMergeInto）
 		 */
 		void followRoute(Car c) {
+			
+			// ★ 路段切換冷卻中就跳過，避免連續兩次
+	    if (c.routeCooldown > 0) return;
+			
 			// A) 已在 entry/ramp/exit/connector：用 routeGraph 串接
 			List<Lane> chain = routeGraph.get(c.lane);
 			
 			if (chain != null && !chain.isEmpty()) {
 				if (c.s >= 0.7) {
+					
+					if ((c.lane.path.name.startsWith("EW") || c.lane.path.name.startsWith("NS")) && c.s > 0.73) {
+						return;
+					}
+					
 					Lane nxt = chain.get(0);
 
 					// 先用幾何交點估個起點，再在一小段視窗內搜尋可安全插入的 s
-					Double sHit = mergeSAtIntersection(c.lane.path, nxt.path);
-					Double sCand = null;
-					if (sHit != null) {
-						double sMin = Math.max(0.02, sHit - 0.05);
-						double sMax = Math.min(0.20, sHit + 0.05);
-						sCand = findSafeMergeS(c, nxt, sMin, sMax, 9);
-					} else {
-						sCand = findSafeMergeS(c, nxt, 0.02, 0.18, 9);
-					}
+					Double sCand = findSafeAroundSByProjection(c, nxt, /*radius=*/0.06, /*samples=*/11);
 					
-					if (sCand != null && gapOK(c, nxt, sCand)) {
-						Lane from = c.lane;
+					// 判斷是否「卡尾」
+	        boolean atTail = (c.s >= 0.97);
+	        if (atTail) {
+	            c.endHold = Math.min(c.endHold + 1.0/60.0, 5.0); // 以 60FPS 累積，最多 5 秒
+	            // 不要卡在 0.99~1.00，退回到 0.965，避免被 wrapOrRecycle 硬夾住
+	            c.s = 0.965;
+	            // 給一個「蠕行」速度，避免完全靜止
+	            c.v = Math.max(c.v, 6.0);
+	        } else {
+	            // 離段尾時重置等待
+	            c.endHold = Math.max(0.0, c.endHold - 2.0/60.0);
+	        }
+
+	        double relax = c.endHold / 5.0 * 0.30; // 0~0.30 的放寬
+	        boolean ok = (sCand != null) && gapOK(c, nxt, sCand, relax);
+					
+					if (ok) {
+						// ★ 先記住舊車道
+				    Lane prevLane = c.lane;
+						
+						c.animFromPoint = c.position();
+            c.animFromLane  = null;
+            c.animT         = 0.0;
+						
 						c.lane = nxt;
-						c.s = sCand;
-						// 進入彎道：限速 + 取消跨弧線的補間，直接走中心線
-						if (!nxt.path.isStraight) {
-						    c.v = Math.min(Math.max(c.v, 8), speedLimit(nxt) * rampEntryFactor);
-						    c.animFromLane = null;
-						    c.animT = 1.0;
+						if (c.lane.path.name.endsWith("off")) {
+							c.s = 0.3;
 						} else {
-						    if (c.v < 8) c.v = 8;
-						    // 直線↔直線才做補間
-						    if (from.path.isStraight && from.path.name.startsWith("Connect")) {
-						        c.animFromLane = from;
-						        c.animT = 0.0;
-						    } else {
-						        c.animFromLane = null;
-						        c.animT = 1.0;
-						    }
+							c.s = 1 - sCand;
 						}
+						
+						// ★ 啟動路段切換冷卻，避免下一幀再次觸發
+				    c.routeCooldown = 0.60;  // 建議 0.5~0.8 秒，依路段長度可調
+				    c.lastRouteTo = c.lane;  // 記下目標，避免重覆
+				    
+						// ★ 若是從 Ramp_* 移到非 Ramp（例如 Connect_ 或主線），啟動出匝道「鎖＋降速」
+						if (prevLane.path.name.startsWith("Ramp_") && !c.lane.path.name.startsWith("Ramp_")) {
+							c.rampLockout = Math.max(c.rampLockout, 4.0); // 4 秒內禁上任何匝道（可調 3~6）
+							// 以最後彎道的動態上限當作出匝道初始上限再打折
+							double rampVmax = speedLimit(prevLane);
+							c.postExitVmax = Math.max(12.0, rampVmax * 0.85); // 初始上限：彎道上限的 85%
+							c.postExitCooldown = Math.max(c.postExitCooldown, 2.5); // 緩升 2.5 秒（和 speedLimit(Car) 對應）
+							// 若當前速度超過初始上限，直接夾住
+							c.v = Math.min(c.v, c.postExitVmax);
+						} else {
+	            // 還是沒成功，就保持蠕行但別再推到 s=1
+	            c.s = Math.min(c.s, 0.97);
+	            c.v = Math.max(6.0, c.v * 0.8);
+						}
+				    
+				    return;
+					
 					} else {
-						// 夾住尾端、保留微速等窗口
+						// 停在尾端、保留微速等窗口
 						c.s = 0.992;
 						c.v = Math.max(2.0, c.v * 0.5);
 					}
@@ -399,68 +432,132 @@ public class CloverleafSimIDM extends JFrame {
 
 			// B) 還在直線（決定是否上匝道）
 			if (!c.lane.path.isStraight)
-				return;
+			  return;
 			
+			// ★ 出匝道後的鎖：鎖著就完全不考慮上匝道
+			if (c.rampLockout > 0.0)
+			    return;
+
+			// 只有在允許走匝道、且大致靠近交點區域時才評估
 			if (c.takeRamp && c.s >= 0.65) {
-				Lane entry = null;
-				String n = c.lane.path.name;
-				if (n.startsWith("EW_East_C"))
-					entry = findLaneByName("Connect_EB_R1");
-				else if (n.startsWith("NS_North_C"))
-					entry = findLaneByName("Connect_NB_R2");
-				else if (n.startsWith("EW_West_C"))
-					entry = findLaneByName("Connect_WB_R3");
-				else if (n.startsWith("NS_South_C"))
-					entry = findLaneByName("Connect_SB_R4");
+			  Lane entry = null;
+			  String n = c.lane.path.name;
+			  if (n.startsWith("EW_East_C"))      entry = findLaneByName("Connect_EB_R1");
+			  else if (n.startsWith("NS_North_C")) entry = findLaneByName("Connect_NB_R2");
+			  else if (n.startsWith("EW_West_C"))  entry = findLaneByName("Connect_WB_R3");
+			  else if (n.startsWith("NS_South_C")) entry = findLaneByName("Connect_SB_R4");
 
-				if (entry != null) {
-					Double sHit = mergeSAtIntersection(c.lane.path, entry.path); // 直線→入口的交點
-					Double sCand = null;
-					if (sHit != null) {
-						double sMin = Math.max(0.02, sHit - 0.05);
-						double sMax = Math.min(0.20, sHit + 0.05);
-						sCand = findSafeMergeS(c, entry, sMin, sMax, 9);
-					} else {
-						sCand = findSafeMergeS(c, entry, 0.02, 0.18, 9);
-					}
+			  if (entry != null) {
+			    // ---- 新增：如果本圈已經越過該入口，直接不再嘗試 ----
+			    // 用「把匝道入口起點的一小段（s≈0.02）投影到主線」當作主線上的入口參考位置
+			    double sEntryOnMain = projectPointToPathS(c.lane.path, entry.path.pointAt(0.02));
+			    boolean sameLapNoWrap = (c.s >= c.sPrev); // 沒 wrap，表示同一圈正在前進
+			    if (sameLapNoWrap && c.s > sEntryOnMain + 0.01) {
+			      c.passedEntryThisLap = true; // 記錄已經通過入口
+			    }
+			    if (c.passedEntryThisLap) {
+			      return; // 本圈已過入口，不再併入
+			    }
 
-					if (sCand != null && gapOK(c, entry, sCand)) {
-						Lane from = c.lane;
-						c.lane = entry;
-						c.s = sCand;
-						if (!entry.path.isStraight) {
-						    // 理論上 entry 多為直線，但若為弧線一律按彎道處理
-						    c.v = Math.min(Math.max(c.v, 8), speedLimit(entry) * rampEntryFactor);
-						    c.animFromLane = null;
-						    c.animT = 1.0;
-						} else {
-						    // 直線入口：允許補間，但下一步接到 Ramp（弧線）會取消補間
-						    if (c.v < 8) c.v = 8;
-						    if (from.path.isStraight) {
-						        c.animFromLane = from;
-						        c.animT = 0.0;
-						    } else {
-						        c.animFromLane = null;
-						        c.animT = 1.0;
-						    }
-						}
-					} else if (c.s >= 0.98) {
-						c.s = 0.992;
-						c.v = Math.max(2.0, c.v * 0.5);
-					}
-				}
+			    // ---- 仍可嘗試：用投影視窗找安全插入點，且要求「入口在車前方」----
+			    Double sCand = findSafeAroundSByProjection(c, entry, 0.06, 11);
+			    
+			    if (sCand != null) {
+			      // 入口是否在前方（而不是在車後方）：用主線 heading 與「車->入口點」的內積作判斷
+			      Point2D now = c.position();
+			      Point2D pin = entry.path.pointAt(sCand);
+			      double hx = Math.cos(c.heading()), hy = Math.sin(c.heading());
+			      double vx = pin.getX() - now.getX(), vy = pin.getY() - now.getY();
+			      boolean ahead = (hx * vx + hy * vy) > 0;
+
+			      if (ahead && gapOK(c, entry, sCand)) {
+			        Lane from = c.lane;
+			        c.lane = entry;
+			        c.s = sCand;
+
+			        // 一旦成功上匝道，避免立刻又嘗試其他跨段
+			        c.routeCooldown = 0.60;
+
+			        if (!entry.path.isStraight) {
+			          c.v = Math.min(Math.max(c.v, 8), speedLimit(entry) * rampEntryFactor);
+			          c.animFromLane = null;
+			          c.animFromPoint = now; // 視覺平滑：世界座標補間
+			          c.animT = 0.0;
+			        } else {
+			          if (c.v < 8) c.v = 8;
+			          if (from.path.isStraight) {
+			            c.animFromLane = from; c.animFromPoint = null; c.animT = 0.0;
+			          } else {
+			            c.animFromLane = null; c.animFromPoint = now;  c.animT = 0.0;
+			          }
+			        }
+			      } else {
+			        c.s = 0.992;
+			        c.v = Math.max(2.0, c.v * 0.5);
+			      }
+			    } else {
+			      c.s = 0.992;
+			      c.v = Math.max(2.0, c.v * 0.5);
+			    }
+			  }
 			}
+
 		}
 		
 		// NEW: 依車道性質回傳速度上限；直線回傳 v0 的微幅放寬，弧線以 sqrt(a_lat_max * R)
 		double speedLimit(Lane lane) {
-		    if (lane == null || lane.path == null) return v0;
-		    if (!lane.path.isStraight && lane.path.radius != null) {
-		        double R = Math.max(1.0, lane.path.radius);
-		        double vmax = Math.sqrt(aLatMax * R);
-		        return Math.max(10.0, Math.min(v0, vmax)); // 不高於直線巡航速度，也不低於 20
-		    }
-		    return v0 * 1.05;
+			if (lane == null || lane.path == null)
+				return v0 * 0.8;
+
+			// 彎道：以向心加速度上限推得最高速
+			if (!lane.path.isStraight && lane.path.radius != null) {
+				double R = Math.max(1.0, lane.path.radius);
+				double vmax = Math.sqrt(aLatMax * R);
+				return Math.max(10.0, Math.min(v0, vmax)); // 不高於直線巡航，不低於基本值
+			}
+
+			// 直線：若「下一段」是彎道，則在直線上就預先採用彎道上限（含進彎 buffer）
+			List<Lane> nx = routeGraph.get(lane);
+			if (nx != null && !nx.isEmpty()) {
+				Lane first = nx.get(0);
+				if (first != null && first.path != null && !first.path.isStraight && first.path.radius != null) {
+					double Rnext = Math.max(1.0, first.path.radius);
+					double preRamp = Math.sqrt(aLatMax * Rnext) * rampEntryFactor; // 進彎預降速
+					return Math.max(10.0, Math.min(v0, preRamp));
+				}
+			}
+
+			// 一般直線
+			double v = v0 * 0.8;
+
+			// ★ 若是連接段（名稱以 Connect_ 開頭），再稍微壓一點
+			if (lane.path.name.startsWith("Connect_")) {
+			    v = Math.min(v * 0.7, v0 * 0.6);
+			}
+
+			return v;
+		}
+		
+		// ★ 依車輛狀態調整實際上限（出匝道緩升 & 匹配連接段/彎道）
+		double speedLimit(Car c) {
+			double base = speedLimit(c.lane); // 先用你原本的（彎道 √(aLatMax*R) / 直線 v0 或預降速）
+
+			// 連接段（Connect_）本身再保守一點，避免剛出彎就拉滿
+			if (c.lane.path.name.startsWith("Connect_")) {
+				base = Math.min(base, v0 * 0.65); // 約 65% 巡航
+			}
+
+			// 出匝道冷卻：用 postExitVmax 緩升到 base
+			if (c.postExitCooldown > 0.0) {
+				// t=0 -> postExitVmax；t=1 -> base
+				double total = 2.5; // 冷卻總時長（秒），可微調 2~4s
+				double elapsed = Math.min(total, (total - c.postExitCooldown));
+				double t = Math.max(0.0, Math.min(1.0, elapsed / total));
+				double eased = c.postExitVmax + (base - c.postExitVmax) * t; // 線性即可，想更平滑可用 ease 函數
+				base = Math.min(base, eased);
+			}
+
+			return base;
 		}
 
 		/** 建立道路幾何（主幹直線 + 四個匝道弧線 + 進出連接段），並建立對應的 Lane 與相鄰關係。 */
@@ -565,7 +662,12 @@ public class CloverleafSimIDM extends JFrame {
 			for (Car c : cars) {
 		    // NEW: 冷卻/動畫時間流逝
 		    if (c.laneCooldown > 0) c.laneCooldown -= dt;
+		    if (c.routeCooldown > 0) c.routeCooldown -= dt;          // ★ 新增
+		    if (c.rampLockout > 0) c.rampLockout -= (dt-2);          // ★ 新增
+		    if (c.postExitCooldown > 0) c.postExitCooldown -= dt;    // ★ 新增
 		    if (c.animFromLane != null) c.animT = Math.min(1.0, c.animT + dt / 0.35); // 0.35s 動畫
+		    // ★ 若使用世界座標補間，一樣推進 animT
+		    if (c.animFromPoint != null) c.animT = Math.min(1.0, c.animT + dt / 0.35);
 			}
 			
 			// 1) 生成車輛（達時間門檻且未達上限）
@@ -614,9 +716,19 @@ public class CloverleafSimIDM extends JFrame {
 			// 6) 單次推進位置，並交給 wrapOrRecycle 與 followRoute 處理
 			synchronized (cars) {
 				for (Car c : cars) {
+					double sPrev = c.s; // 先存起來
 					c.advance(dt);
 					wrapOrRecycle(c);
 					followRoute(c);
+
+					// 若這條主線是「無限直線」（沒有下一段），s 從大變小代表 wrap 了一圈
+					boolean finiteSegment = routeGraph.containsKey(c.lane) && !routeGraph.get(c.lane).isEmpty();
+					if (!finiteSegment && c.lane.path.isStraight) {
+						if (c.s < sPrev) {
+							c.passedEntryThisLap = false; // 新的一圈，解鎖
+						}
+					}
+					c.sPrev = c.s; // 更新上一幀進度
 				}
 			}
 		}
@@ -642,8 +754,9 @@ public class CloverleafSimIDM extends JFrame {
 				if (finiteSegment) {
 					// NEW: 有下一段 → not wrap，夾住在尾端附近等合流
 					if (c.s > 0.995) {
-						c.s = 1.0;  //0.995;
-						c.v -= 10;  //降速
+						// 溫和降速，但保留最小蠕行速度
+		        c.v = Math.max(6.0, c.v * 0.85);
+		        c.s -= 1;
 					}
 				} else {
 					// 無下一段的無限直線（主線）才循環
@@ -906,12 +1019,21 @@ public class CloverleafSimIDM extends JFrame {
 		/** 依 IDM 計算加速度並以顯式歐拉積分更新速度與位置參數 s。*/
 		void stepIDM(Car c, NeighborInfo N, double dt) {
 			Car leader = (N != null ? N.leaderSame : null);
-			double s = (N != null ? N.leaderSameDist : Double.POSITIVE_INFINITY); // 與前車距離（空間頭距）
+			double s = (N != null ? N.leaderSameDist : Double.POSITIVE_INFINITY);
 			double a = accIDM(c, leader, s);
-			// 積分 v 與 s（確保速度非負）
+
+			// 積分速度
 			c.v += a * dt;
 			if (c.v < 0)
 				c.v = 0;
+
+			// ★ 新增：以當前車道（或預彎道）的上限夾住
+			//double vmax = speedLimit(c.lane);
+			double vmax = speedLimit(c); // ★ 改看車輛狀態
+			if (c.v > vmax)
+				c.v = vmax;
+
+			// 積分位置參數
 			c.s += (c.v * dt) / c.lane.path.length;
 		}
 
@@ -956,25 +1078,31 @@ public class CloverleafSimIDM extends JFrame {
 	    Point2D pt;
 	    double heading;
 
-	    if (c.animFromLane != null && c.animT < 1.0) {
-	        // NEW: 兩條 Lane 在同一個 s 上做空間補間（僅用於視覺，物理仍依目標 lane）
-	        Point2D p0 = c.animFromLane.path.pointAt(c.s);
-	        Point2D p1 = c.lane.path.pointAt(c.s);
-	        double x = RoadPath.lerp(p0.getX(), p1.getX(), c.animT);
-	        double y = RoadPath.lerp(p0.getY(), p1.getY(), c.animT);
-	        pt = new Point2D.Double(x, y);
-
-	        double h0 = c.animFromLane.path.headingAt(c.s);
-	        double h1 = c.lane.path.headingAt(c.s);
-	        // 簡單線性補間方向（足夠平滑）
-	        heading = h0 + (h1 - h0) * c.animT;
-
-	        if (c.animT >= 1.0) c.animFromLane = null; // 收尾
-	    } else {
-	        pt = c.position();
-	        heading = c.heading();
-	        c.animFromLane = null; // 防衛
-	    }
+			if (c.animFromPoint != null && c.animT < 1.0) {
+				Point2D p1 = c.lane.path.pointAt(c.s); // 新車道上的當前位置
+				double x = RoadPath.lerp(c.animFromPoint.getX(), p1.getX(), c.animT);
+				double y = RoadPath.lerp(c.animFromPoint.getY(), p1.getY(), c.animT);
+				pt = new Point2D.Double(x, y);
+				heading = c.lane.path.headingAt(c.s); // 方向以目標車道為準
+				if (c.animT >= 1.0)
+					c.animFromPoint = null; // 收尾
+			} else if (c.animFromLane != null && c.animT < 1.0) {
+				Point2D p0 = c.animFromLane.path.pointAt(c.s);
+				Point2D p1 = c.lane.path.pointAt(c.s);
+				double x = RoadPath.lerp(p0.getX(), p1.getX(), c.animT);
+				double y = RoadPath.lerp(p0.getY(), p1.getY(), c.animT);
+				pt = new Point2D.Double(x, y);
+				double h0 = c.animFromLane.path.headingAt(c.s);
+				double h1 = c.lane.path.headingAt(c.s);
+				heading = h0 + (h1 - h0) * c.animT;
+				if (c.animT >= 1.0)
+					c.animFromLane = null;
+			} else {
+				pt = c.position();
+				heading = c.heading();
+				c.animFromLane = null;
+				c.animFromPoint = null;
+			}
 
 	    AffineTransform at = g.getTransform();
 	    g.translate(pt.getX(), pt.getY());
@@ -1079,7 +1207,7 @@ public class CloverleafSimIDM extends JFrame {
 			return Math.max(0.0, Math.min(s, 1.0));
 		}
 		
-	// 掃描一個插入視窗（預設 0.00~0.15），找第一個安全的 s；找不到回傳 null
+		// 掃描一個插入視窗（預設 0.00~0.15），找第一個安全的 s；找不到回傳 null
 		Double findSafeMergeS(Car me, Lane target, double sStart, double sEnd, int samples) {
 		    //double bestS = -1;
 		    for (int i = 0; i < samples; i++) {
@@ -1091,6 +1219,23 @@ public class CloverleafSimIDM extends JFrame {
 		        }
 		    }
 		    return null;
+		}
+		
+		Double findSafeAroundSByProjection(Car me, Lane target, double radius, int samples) {
+			// 以「目前世界座標」投影到目標車道，拿到中心 s
+			Point2D now = me.position();
+			double sCenter = projectPointToPathS(target.path, now);
+			double sStart = Math.max(0.0, sCenter - radius);
+			double sEnd = Math.min(1.0, sCenter + radius);
+
+			// 在 [sStart, sEnd] 掃描安全 gap
+			for (int i = 0; i < samples; i++) {
+				double t = (samples == 1) ? 0.0 : (i / (double) (samples - 1));
+				double sCand = sStart + (sEnd - sStart) * t;
+				if (gapOK(me, target, sCand))
+					return sCand;
+			}
+			return null;
 		}
 
 		// 檢查在 target 車道的 sCand 處是否有足夠前後安全距離
@@ -1131,8 +1276,80 @@ public class CloverleafSimIDM extends JFrame {
 		    }
 		    return okAhead && okBehind;
 		}
-
 		
+		//gapOK：加入「壓力」參數（等越久越放寬）
+		boolean gapOK(Car me, Lane target, double sCand, double relax) {
+	    Car ahead = null, behind = null;
+	    double bestAhead = Double.POSITIVE_INFINITY, bestBehind = Double.POSITIVE_INFINITY;
+
+	    synchronized (cars) {
+	        for (Car c : cars) if (c.lane == target && c != me) {
+	            double dsF = c.s - sCand; if (dsF < 0) dsF += 1.0;
+	            double dpxF = dsF * target.path.length;
+	            if (dpxF >= 0 && dpxF < bestAhead)  { bestAhead  = dpxF; ahead  = c; }
+
+	            double dsB = sCand - c.s; if (dsB < 0) dsB += 1.0;
+	            double dpxB = dsB * target.path.length;
+	            if (dpxB >= 0 && dpxB < bestBehind) { bestBehind = dpxB; behind = c; }
+	        }
+	    }
+
+	    double vM = Math.max(1.0, me.v);
+	    double vB = (behind != null ? Math.max(1.0, behind.v) : vM);
+	    double sStarMe     = s0 + Math.max(0, vM * T);
+	    double sStarBehind = s0 + Math.max(0, vB * T);
+
+	    // 原本門檻：前方 1.10、後方 1.20
+	    double fwd = 1.10, back = 1.20;
+
+	    // 等越久越放寬（最多放寬 30%）
+	    double k = Math.max(0, Math.min(0.30, relax)); // 0~0.30
+	    fwd  *= (1.0 - k);
+	    back *= (1.0 - k * 0.8); // 對後車稍微保守
+
+	    boolean okAhead  = (ahead  == null) || (bestAhead  > sStarMe     * fwd);
+	    boolean okBehind = (behind == null) || (bestBehind > sStarBehind * back);
+
+	    if (vM <= 2.0) { // 幾乎停住時再額外小放寬
+	        okAhead  = (ahead  == null) || (bestAhead  > sStarMe     * Math.max(0.95, fwd  - 0.05));
+	        okBehind = (behind == null) || (bestBehind > sStarBehind * Math.max(1.05, back - 0.10));
+	    }
+	    return okAhead && okBehind;
+	}
+
+
+		// 角度差（0~π）
+		static double angleDiff(double a, double b) {
+		    double d = Math.abs(a - b);
+		    while (d > Math.PI) d -= 2*Math.PI;
+		    return Math.abs(d);
+		}
+
+		// 在目標附近，挑一條「與當前 heading 最對齊」的直線 Lane
+		Lane pickAlignedLaneNear(Point2D where, double headingNow, Lane preferred, List<Lane> all) {
+		    Lane best = null;
+		    double bestScore = -1;
+
+		    // 蒐集候選：同區域直線（含 preferred 自己）
+		    for (Lane L : all) {
+		        if (L == null || L.path == null || !L.path.isStraight) continue;
+
+		        // 以投影點取得該 Lane 的 s 與 heading
+		        double s = projectPointToPathS(L.path, where);       // 0..1
+		        double h = L.path.headingAt(s);
+		        double score = Math.cos(angleDiff(headingNow, h));   // 1=同向, -1=反向
+
+		        // 以與 preferred 距離做簡單濾波：同一走廊/附近
+		        // （你也可以用名稱前綴，例如 "EW_" 或 "NS_" 來濾一輪）
+		        if (score > bestScore) {
+		            bestScore = score;
+		            best = L;
+		        }
+		    }
+		    // 若全都找不到，就回傳 preferred
+		    return (best != null ? best : preferred);
+		}
+
 
 	}
 
@@ -1160,9 +1377,28 @@ public class CloverleafSimIDM extends JFrame {
 		Color color = Color.CYAN;
 		boolean takeRamp = false; // 是否偏好走匝道
 		double laneCooldown = 0;  // NEW: 變道冷卻秒數
+		
+		// ★ 新增：跨段（followRoute）冷卻，避免連續兩次
+    double routeCooldown = 0.0;
+    // ★（可選）紀錄剛剛切換到的新段，避免馬上重做同目標
+    Lane lastRouteTo = null;
+		
 		// NEW: 視覺平滑（補間）狀態
 		Lane animFromLane = null;
 		double animT = 0;         // 0->1 的補間進度
+		// ★ 新增：從世界座標補間（彎→直也能平滑）
+    Point2D animFromPoint = null;
+    
+    double sPrev = 0.0;          // 上一幀的 s，用來偵測是否 wrap（從 1 回到 0）
+    boolean passedEntryThisLap = false; // 這一圈是否已經越過對應匝道入口（主線->匝道）
+    
+    // ★ 出匝道後的匝道鎖與速度緩升控制
+    double rampLockout = 0.0;      // 期間禁止再次嘗試上任何匝道（秒）
+    double postExitCooldown = 0.0; // 期間內限制最高速，並逐步放寬（秒）
+    double postExitVmax = 0.0;     // 冷卻期初始的最高速上限（px/s）
+    
+    // 在段尾等待（靠近 s=1）的累積秒數，用來逐步放寬併入門檻
+    double endHold = 0.0;
 
 		public Car(Lane lane) {
 			this.lane = lane;
