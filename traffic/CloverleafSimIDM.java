@@ -254,6 +254,10 @@ public class CloverleafSimIDM extends JFrame {
 		final double b = 1.5 * 40;    // 舒適減速度（px/s^2）
 		final double s0 = 8.0;        // 最小頭距（px）
 		final double delta = 4.0;     // 加速度指數
+		
+		// NEW: 橫向加速度上限（像素尺度），用於彎道最高安全車速 v_max = sqrt(a_lat_max * R)
+		final double aLatMax = 1.0 * 40; // 約等效 ~1g 的 0.1 量級（依需求可調）
+		final double rampEntryFactor = 0.90; // 進彎時再降低 10% 當 buffer
 
 		// MOBIL 參數
 		final double politeness = 0.3;            // 禮讓係數（他人效用的權重）
@@ -298,21 +302,25 @@ public class CloverleafSimIDM extends JFrame {
 			for (Lane l : lanes) routeGraph.put(l, new ArrayList<>());
 
 			// EB -> NB
+			connect("EW_East_C_off", "Connect_EB_R1");
 			connect("Connect_EB_R1", "Ramp_EB_to_NB");
 			connect("Ramp_EB_to_NB", "Connect_R1_NB");
 			connect("Connect_R1_NB", "NS_North_C_off");
 
 			// NB -> WB
+			connect("NS_North_C_off", "Connect_NB_R2");
 			connect("Connect_NB_R2", "Ramp_NB_to_WB");
 			connect("Ramp_NB_to_WB", "Connect_R2_WB");
 			connect("Connect_R2_WB", "EW_West_C_off");
 
 			// WB -> SB
+			connect("EW_East_C_off", "Connect_WB_R3");
 			connect("Connect_WB_R3", "Ramp_WB_to_SB");
 			connect("Ramp_WB_to_SB", "Connect_R3_SB");
 			connect("Connect_R3_SB", "NS_South_C_off");
 
 			// SB -> EB
+			connect("NS_South_C_off", "Connect_SB_R4");
 			connect("Connect_SB_R4", "Ramp_SB_to_EB");
 			connect("Ramp_SB_to_EB", "Connect_R4_EB");
 			connect("Connect_R4_EB", "EW_East_C_off");
@@ -344,8 +352,9 @@ public class CloverleafSimIDM extends JFrame {
 		void followRoute(Car c) {
 			// A) 已在 entry/ramp/exit/connector：用 routeGraph 串接
 			List<Lane> chain = routeGraph.get(c.lane);
+			
 			if (chain != null && !chain.isEmpty()) {
-				if (c.s >= 0.98) {
+				if (c.s >= 0.7) {
 					Lane nxt = chain.get(0);
 
 					// 先用幾何交點估個起點，再在一小段視窗內搜尋可安全插入的 s
@@ -358,16 +367,27 @@ public class CloverleafSimIDM extends JFrame {
 					} else {
 						sCand = findSafeMergeS(c, nxt, 0.02, 0.18, 9);
 					}
-
+					
 					if (sCand != null && gapOK(c, nxt, sCand)) {
 						Lane from = c.lane;
 						c.lane = nxt;
 						c.s = sCand;
-						if (c.v < 8) c.v = 8;
-
-						// 視覺平滑補間
-						c.animFromLane = from;
-						c.animT = 0.0;
+						// 進入彎道：限速 + 取消跨弧線的補間，直接走中心線
+						if (!nxt.path.isStraight) {
+						    c.v = Math.min(Math.max(c.v, 8), speedLimit(nxt) * rampEntryFactor);
+						    c.animFromLane = null;
+						    c.animT = 1.0;
+						} else {
+						    if (c.v < 8) c.v = 8;
+						    // 直線↔直線才做補間
+						    if (from.path.isStraight && from.path.name.startsWith("Connect")) {
+						        c.animFromLane = from;
+						        c.animT = 0.0;
+						    } else {
+						        c.animFromLane = null;
+						        c.animT = 1.0;
+						    }
+						}
 					} else {
 						// 夾住尾端、保留微速等窗口
 						c.s = 0.992;
@@ -380,7 +400,7 @@ public class CloverleafSimIDM extends JFrame {
 			// B) 還在直線（決定是否上匝道）
 			if (!c.lane.path.isStraight)
 				return;
-
+			
 			if (c.takeRamp && c.s >= 0.65) {
 				Lane entry = null;
 				String n = c.lane.path.name;
@@ -408,11 +428,22 @@ public class CloverleafSimIDM extends JFrame {
 						Lane from = c.lane;
 						c.lane = entry;
 						c.s = sCand;
-						if (c.v < 8) c.v = 8;
-
-						// 視覺補間，避免直線→entry 的瞬間跳點
-						c.animFromLane = from;
-						c.animT = 0.0;
+						if (!entry.path.isStraight) {
+						    // 理論上 entry 多為直線，但若為弧線一律按彎道處理
+						    c.v = Math.min(Math.max(c.v, 8), speedLimit(entry) * rampEntryFactor);
+						    c.animFromLane = null;
+						    c.animT = 1.0;
+						} else {
+						    // 直線入口：允許補間，但下一步接到 Ramp（弧線）會取消補間
+						    if (c.v < 8) c.v = 8;
+						    if (from.path.isStraight) {
+						        c.animFromLane = from;
+						        c.animT = 0.0;
+						    } else {
+						        c.animFromLane = null;
+						        c.animT = 1.0;
+						    }
+						}
 					} else if (c.s >= 0.98) {
 						c.s = 0.992;
 						c.v = Math.max(2.0, c.v * 0.5);
@@ -420,43 +451,27 @@ public class CloverleafSimIDM extends JFrame {
 				}
 			}
 		}
-
-
-		/** 在目標車道 target 的 s≈sOnTarget 處，檢查前後最接近車是否留有足夠安全距離。 */
-		boolean canMergeInto(Car me, Lane target, double sOnTarget) {
-			Car ahead = null, behind = null;
-			double bestAhead = Double.POSITIVE_INFINITY, bestBehind = Double.POSITIVE_INFINITY;
-
-			synchronized (cars) {
-				for (Car c : cars) if (c.lane == target && c != me) {
-					double ds = c.s - sOnTarget;
-					if (ds < 0) ds += 1.0;
-					double dpx = ds * target.path.length;
-					if (dpx >= 0 && dpx < bestAhead) { bestAhead = dpx; ahead = c; }
-
-					double dsb = sOnTarget - c.s;
-					if (dsb < 0) dsb += 1.0;
-					double dpxb = dsb * target.path.length;
-					if (dpxb >= 0 && dpxb < bestBehind) { bestBehind = dpxb; behind = c; }
-				}
-			}
-			double vM = Math.max(1.0, me.v);
-			double sStarMe = s0 + Math.max(0, vM * T);
-			double sStarBehind = s0 + Math.max(0, (behind != null ? behind.v : vM) * T);
-			boolean okAhead  = (ahead  == null) || (bestAhead  > sStarMe * 1.05); //1.2
-			boolean okBehind = (behind == null) || (bestBehind > sStarBehind * 1.05); //1.2
-			return okAhead && okBehind;
+		
+		// NEW: 依車道性質回傳速度上限；直線回傳 v0 的微幅放寬，弧線以 sqrt(a_lat_max * R)
+		double speedLimit(Lane lane) {
+		    if (lane == null || lane.path == null) return v0;
+		    if (!lane.path.isStraight && lane.path.radius != null) {
+		        double R = Math.max(1.0, lane.path.radius);
+		        double vmax = Math.sqrt(aLatMax * R);
+		        return Math.max(10.0, Math.min(v0, vmax)); // 不高於直線巡航速度，也不低於 20
+		    }
+		    return v0 * 1.05;
 		}
 
 		/** 建立道路幾何（主幹直線 + 四個匝道弧線 + 進出連接段），並建立對應的 Lane 與相鄰關係。 */
 		void buildGeometry() {
 			int edge = 60;
 			// 主幹道：東西向、南北向，各方向兩車道（以中心線平移得到內外側）
-			RoadPath eastCenter = RoadPath.straight(W-edge, cy + laneWidth*1.2, edge, cy + laneWidth*1.2, "EW_East_C");
+			RoadPath eastCenter = RoadPath.straight(edge, cy + laneWidth*1.2, W-edge, cy + laneWidth*1.2, "EW_East_C");
 			RoadPath eastLeft   = eastCenter.offset( laneWidth/2);   // 東向內側
 			RoadPath eastRight  = eastCenter.offset(-laneWidth/2);   // 東向外側
 
-			RoadPath westCenter = RoadPath.straight(edge, cy - laneWidth*1.2, W-edge, cy - laneWidth*1.2, "EW_West_C");
+			RoadPath westCenter = RoadPath.straight(W-edge, cy - laneWidth*1.2, edge, cy - laneWidth*1.2, "EW_West_C");
 			RoadPath westLeft   = westCenter.offset( laneWidth/2);   // 西向內側
 			RoadPath westRight  = westCenter.offset(-laneWidth/2);   // 西向外側
 
@@ -620,27 +635,34 @@ public class CloverleafSimIDM extends JFrame {
 		 * 匝道弧線：s>=1 時回到 0（形成回圈）。
 		 */
 		void wrapOrRecycle(Car c) {
-	    // 只要這條 Lane 在 routeGraph 中「有」下一段，表示它是有限段（entry/ramp/exit/connector）
-	    boolean finiteSegment = routeGraph.containsKey(c.lane) && !routeGraph.get(c.lane).isEmpty();
-
-	    if (c.lane.path.isStraight) {
-	        if (finiteSegment) {
-	            // NEW: 有下一段 → 不 wrap，夾住在尾端附近等合流
-	            if (c.s > 0.995) c.s = 0.995;
-	        } else {
-	            // 無下一段的無限直線（主線）才循環
-	            if (c.s > 1.0) c.s = 0;
-	            else if (c.s < 0) c.s += 1.0;
-	        }
-	    } else {
-	        // 弧線（匝道本身通常也有下一段），同理：有下一段就別回繞
-	        if (finiteSegment) {
-	            if (c.s > 0.995) c.s = 0.995;
-	        } else {
-	            if (c.s > 1.0) c.s = 0.0; // 保留原本回圈行為
-	        }
-	    }
-	}
+			// 只要這條 Lane 在 routeGraph 中「有」下一段，表示它是有限段（entry/ramp/exit/connector）
+			boolean finiteSegment = routeGraph.containsKey(c.lane) && !routeGraph.get(c.lane).isEmpty();
+			
+			if (c.lane.path.isStraight) { //連結型態為直線
+				if (finiteSegment) {
+					// NEW: 有下一段 → not wrap，夾住在尾端附近等合流
+					if (c.s > 0.995) {
+						c.s = 1.0;  //0.995;
+						c.v -= 10;  //降速
+					}
+				} else {
+					// 無下一段的無限直線（主線）才循環
+					if (c.s > 1.0)
+						c.s = 0;
+					else if (c.s < 0)
+						c.s += 1.0;
+				}
+			} else {
+				// 弧線（匝道本身通常也有下一段），同理：有下一段就別回繞
+				if (finiteSegment) {
+					if (c.s > 0.995)
+						c.s = 0.995;
+				} else {
+					if (c.s > 1.0)
+						c.s = 0.0; // 保留原本回圈行為
+				}
+			}
+		}
 
 		/** 隨機在主幹直線道生成一輛車（初始 s 落在 [0,0.2)）；並隨機決定是否偏好走匝道。 */
 		void spawnCar() {
@@ -1059,7 +1081,7 @@ public class CloverleafSimIDM extends JFrame {
 		
 	// 掃描一個插入視窗（預設 0.00~0.15），找第一個安全的 s；找不到回傳 null
 		Double findSafeMergeS(Car me, Lane target, double sStart, double sEnd, int samples) {
-		    double bestS = -1;
+		    //double bestS = -1;
 		    for (int i = 0; i < samples; i++) {
 		        double t = (samples == 1) ? 0.0 : (i / (double)(samples - 1));
 		        double sCand = sStart + (sEnd - sStart) * t;
@@ -1154,7 +1176,7 @@ public class CloverleafSimIDM extends JFrame {
 			return lane.path.headingAt(s);
 		}
 
-		// 依速度與 dt 推進 s；wrap/夾住/回圈統一交給 World.wrapOrRecycle()
+		// 單純依速度與 dt 積分 s；wrap 或夾住由 wrapOrRecycle() 負責
 		void advance(double dt) {
 			s += (v * dt) / lane.path.length;
 		}
@@ -1195,6 +1217,11 @@ public class CloverleafSimIDM extends JFrame {
 		final double length;      // 總弧長
 		final double[] segLen;    // 前綴弧長表，segLen[i] = 0..i 的長度
 		final boolean isStraight; // 是否為直線（影響變道規則）
+		
+		// NEW: 若為圓弧，保留曲率中心與半徑，供速度上限估算使用
+		final Double cx;
+		final Double cy;
+		final Double radius;
 
 		RoadPath(List<Point2D> pts, String name, boolean straight) {
 			this.pts = pts;
@@ -1208,6 +1235,11 @@ public class CloverleafSimIDM extends JFrame {
 				segLen[i] = sum;
 			}
 			this.length = Math.max(1.0, sum); // 避免除以 0
+			
+			// 非弧線預設沒有曲率資訊
+			this.cx = null;
+			this.cy = null;
+			this.radius = null;
 		}
 
 		/** 建立兩點直線（以 120 段等分取樣成折線呈現，便於計算與繪圖）。*/
@@ -1237,7 +1269,23 @@ public class CloverleafSimIDM extends JFrame {
 				double y = cy + r * Math.sin(a);
 				l.add(new Point2D.Double(x, y));
 			}
-			return new RoadPath(l, name, false);
+			
+			// 生成路徑並填入曲率資訊
+			RoadPath p = new RoadPath(l, name, false);
+			try {
+			    java.lang.reflect.Field fcx = RoadPath.class.getDeclaredField("cx");
+			    java.lang.reflect.Field fcy = RoadPath.class.getDeclaredField("cy");
+			    java.lang.reflect.Field fr  = RoadPath.class.getDeclaredField("radius");
+			    fcx.setAccessible(true);
+			    fcy.setAccessible(true);
+			    fr.setAccessible(true);
+			    fcx.set(p, cx);
+			    fcy.set(p, cy);
+			    fr.set(p, r);
+			} catch (Exception ignore) {
+				ignore.printStackTrace();
+			}
+			return p;
 		}
 
 		/**
