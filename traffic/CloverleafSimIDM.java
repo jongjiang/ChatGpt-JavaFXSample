@@ -66,6 +66,12 @@ import javax.swing.WindowConstants;
  */
 @SuppressWarnings("serial")
 public class CloverleafSimIDM extends JFrame {
+	
+	//幾個取點用的小參數（可微調視覺）
+	static double slipInset = 0.13; // 從主線靠交會點的比例（0~1；越大越靠近中心）
+	static double slipFar = 1 - slipInset; // 從目標主線離中心處的比例（0~1；越大越靠外）
+	static double od = 60.0;
+	
 	public static void main(String[] args) {
 		// Swing 元件需在 Event Dispatch Thread 建立與更新
 		SwingUtilities.invokeLater(() -> {
@@ -324,6 +330,31 @@ public class CloverleafSimIDM extends JFrame {
 			connect("Connect_SB_R4", "Ramp_SB_to_EB");
 			connect("Ramp_SB_to_EB", "Connect_R4_EB");
 			connect("Connect_R4_EB", "EW_East_C_off");
+			
+			// ==== 外側右轉匝道（Direct / Slip）====
+			// EB -> SB（Q4）
+			connect("EW_East_C_off", "Connect_EB_SR1");
+			connect("Connect_EB_SR1", "Slip_EB_to_SB");
+			connect("Slip_EB_to_SB", "Connect_SR1_SB");
+			connect("Connect_SR1_SB", "NS_South_C_off");
+	
+			// NB -> EB（Q1）
+			connect("NS_North_C_off", "Connect_NB_SR2");
+			connect("Connect_NB_SR2", "Slip_NB_to_EB");
+			connect("Slip_NB_to_EB", "Connect_SR2_EB");
+			connect("Connect_SR2_EB", "EW_East_C_off");
+	
+			// WB -> NB（Q2）
+			connect("EW_West_C_off", "Connect_WB_SR3");
+			connect("Connect_WB_SR3", "Slip_WB_to_NB");
+			connect("Slip_WB_to_NB", "Connect_SR3_NB");
+			connect("Connect_SR3_NB", "NS_North_C_off");
+	
+			// SB -> WB（Q3）
+			connect("NS_South_C_off", "Connect_SB_SR4");
+			connect("Connect_SB_SR4", "Slip_SB_to_WB");
+			connect("Slip_SB_to_WB", "Connect_SR4_WB");
+			connect("Connect_SR4_WB", "EW_West_C_off");
 		}
 
 		/** 幫助函式：將名稱前綴相符的車道連成 from → to（以 Lane 為 key/value）。 */
@@ -393,12 +424,13 @@ public class CloverleafSimIDM extends JFrame {
             c.animFromLane  = null;
             c.animT         = 0.0;
 						
-						c.lane = nxt;
-						if (c.lane.path.name.endsWith("off")) {
-							c.s = 0.3;
-						} else {
-							c.s = 1 - sCand;
-						}
+            // 先決定插入 s：優先用 from→to 的幾何交點；若找不到就用前面求得的 sCand
+            Double sIntersect = mergeSAtIntersection(prevLane.path, nxt.path);
+            double sNew = (sIntersect != null ? sIntersect : sCand);
+
+            // 對所有段一律用 sNew（不用再特判 _off，也不用 1 - sCand）
+            c.lane = nxt;
+            c.s = Math.max(0.0, Math.min(1.0, sNew));
 						
 						// ★ 啟動路段切換冷卻，避免下一幀再次觸發
 				    c.routeCooldown = 0.60;  // 建議 0.5~0.8 秒，依路段長度可調
@@ -439,13 +471,23 @@ public class CloverleafSimIDM extends JFrame {
 			    return;
 
 			// 只有在允許走匝道、且大致靠近交點區域時才評估
-			if (c.takeRamp && c.s >= 0.65) {
+			if (c.takeRamp) {
 			  Lane entry = null;
 			  String n = c.lane.path.name;
-			  if (n.startsWith("EW_East_C"))      entry = findLaneByName("Connect_EB_R1");
-			  else if (n.startsWith("NS_North_C")) entry = findLaneByName("Connect_NB_R2");
-			  else if (n.startsWith("EW_West_C"))  entry = findLaneByName("Connect_WB_R3");
-			  else if (n.startsWith("NS_South_C")) entry = findLaneByName("Connect_SB_R4");
+			  
+			  if (c.s < 0.2) {
+			  	if (n.startsWith("EW_East_C"))      entry = findLaneByName("Connect_EB_SR1");
+				  else if (n.startsWith("NS_North_C")) entry = findLaneByName("Connect_NB_SR2");
+				  else if (n.startsWith("EW_West_C"))  entry = findLaneByName("Connect_WB_SR3");
+				  else if (n.startsWith("NS_South_C")) entry = findLaneByName("Connect_SB_SR4");
+			  }
+			  
+			  if (c.s >= 0.65) {
+				  if (n.startsWith("EW_East_C"))      entry = findLaneByName("Connect_EB_R1");
+				  else if (n.startsWith("NS_North_C")) entry = findLaneByName("Connect_NB_R2");
+				  else if (n.startsWith("EW_West_C"))  entry = findLaneByName("Connect_WB_R3");
+				  else if (n.startsWith("NS_South_C")) entry = findLaneByName("Connect_SB_R4");
+			  }
 
 			  if (entry != null) {
 			    // ---- 新增：如果本圈已經越過該入口，直接不再嘗試 ----
@@ -650,9 +692,62 @@ public class CloverleafSimIDM extends JFrame {
 			lnWestLeft.adjRight = lnWestRight; lnWestRight.adjLeft = lnWestLeft;
 			lnSouthLeft.adjRight = lnSouthRight; lnSouthRight.adjLeft = lnSouthLeft;
 			lnNorthLeft.adjRight = lnNorthRight; lnNorthRight.adjLeft = lnNorthLeft;
-			// 匝道不設相鄰（不變道）
+
+			// ===== 外側右轉匝道（依圖片方向）=====
+			// 1) EB → SB（第4象限，右下）
+			Point2D ebStart = eastCenter.pointAt(slipInset);
+			Point2D sbEnd   = southCenter.pointAt(slipFar);
+			RoadPath sr1Entry = RoadPath.straight(ebStart.getX(), ebStart.getY(), ebStart.getX()+od, ebStart.getY()+od, "Connect_EB_SR1");
+			RoadPath sr1     = RoadPath.straight(ebStart.getX()+od, ebStart.getY()+od, sbEnd.getX()-od, sbEnd.getY()-od, "Slip_EB_to_SB");
+			RoadPath sr1Exit  = RoadPath.straight(sbEnd.getX()-od, sbEnd.getY()-od, sbEnd.getX(), sbEnd.getY(), "Connect_SR1_SB");
+
+			// 2) NB → EB（第1象限，右上）
+			Point2D nbStart = northCenter.pointAt(slipInset);
+			Point2D ebEnd   = eastCenter.pointAt(slipFar);
+			RoadPath sr2Entry = RoadPath.straight(nbStart.getX(), nbStart.getY(), nbStart.getX()+od, nbStart.getY()-od, "Connect_NB_SR2");
+			RoadPath sr2     = RoadPath.straight(nbStart.getX()+od, nbStart.getY()-od, ebEnd.getX()-od, ebEnd.getY()+od, "Slip_NB_to_EB");
+			RoadPath sr2Exit  = RoadPath.straight(ebEnd.getX()-od, ebEnd.getY()+od, ebEnd.getX(), ebEnd.getY(), "Connect_SR2_EB");
+
+			// 3) WB → NB（第2象限，左上）
+			Point2D wbStart = westCenter.pointAt(slipInset);
+			Point2D nbEnd   = northCenter.pointAt(slipFar);
+			RoadPath sr3Entry = RoadPath.straight(wbStart.getX(), wbStart.getY(), wbStart.getX()-od, wbStart.getY()-od, "Connect_WB_SR3");
+			RoadPath sr3     = RoadPath.straight(wbStart.getX()-od, wbStart.getY()-od, nbEnd.getX()+od, nbEnd.getY()+od, "Slip_WB_to_NB");
+			RoadPath sr3Exit  = RoadPath.straight(nbEnd.getX()+od, nbEnd.getY()+od, nbEnd.getX(), nbEnd.getY(), "Connect_SR3_NB");
+
+			// 4) SB → WB（第3象限，左下）
+			Point2D sbStart = southCenter.pointAt(slipInset);
+			Point2D wbEnd   = westCenter.pointAt(slipFar);
+			RoadPath sr4Entry = RoadPath.straight(sbStart.getX(), sbStart.getY(), sbStart.getX()-od, sbStart.getY()+od, "Connect_SB_SR4");
+			RoadPath sr4     = RoadPath.straight(sbStart.getX()-od, sbStart.getY()+od, wbEnd.getX()+od, wbEnd.getY()-od, "Slip_SB_to_WB");
+			RoadPath sr4Exit  = RoadPath.straight(wbEnd.getX()+od, wbEnd.getY()-od, wbEnd.getX(), wbEnd.getY(), "Connect_SR4_WB");
+
+			// 放進 paths
+			Collections.addAll(paths,
+			    sr1Entry, sr1, sr1Exit,
+			    sr2Entry, sr2, sr2Exit,
+			    sr3Entry, sr3, sr3Exit,
+			    sr4Entry, sr4, sr4Exit);
+			
+			// 包成 Lane
+			Lane lnSR1Entry = new Lane(sr1Entry), lnSR1 = new Lane(sr1), lnSR1Exit = new Lane(sr1Exit);
+			Lane lnSR2Entry = new Lane(sr2Entry), lnSR2 = new Lane(sr2), lnSR2Exit = new Lane(sr2Exit);
+			Lane lnSR3Entry = new Lane(sr3Entry), lnSR3 = new Lane(sr3), lnSR3Exit = new Lane(sr3Exit);
+			Lane lnSR4Entry = new Lane(sr4Entry), lnSR4 = new Lane(sr4), lnSR4Exit = new Lane(sr4Exit);
+			
+			// 進 lanes
+			Collections.addAll(lanes,
+			    lnSR1Entry, lnSR1, lnSR1Exit,
+			    lnSR2Entry, lnSR2, lnSR2Exit,
+			    lnSR3Entry, lnSR3, lnSR3Exit,
+			    lnSR4Entry, lnSR4, lnSR4Exit);
+
+			// 匝道不設相鄰（不變道）；直線主線相鄰設定保持原樣
 		}
 
+		// 幫手：在直線 RoadPath 上取得某個 s 的實座標
+//		Point2D ptOn(RoadPath p, double s01) { return p.pointAt(Math.max(0, Math.min(1, s01))); }
+		
 		/**
 		 * 世界更新單步：
 		 * 1) 生成新車 → 2) 建立 QuadTree → 3) 搜尋前後鄰車 → 4) MOBIL 判斷變道 → 5) IDM 加速度與積分 → 6) 推進位置與回收。
@@ -663,7 +758,7 @@ public class CloverleafSimIDM extends JFrame {
 		    // NEW: 冷卻/動畫時間流逝
 		    if (c.laneCooldown > 0) c.laneCooldown -= dt;
 		    if (c.routeCooldown > 0) c.routeCooldown -= dt;          // ★ 新增
-		    if (c.rampLockout > 0) c.rampLockout -= (dt-2);          // ★ 新增
+		    if (c.rampLockout > 0) c.rampLockout -= (dt-2);          // ★ 新增 降慢2s
 		    if (c.postExitCooldown > 0) c.postExitCooldown -= dt;    // ★ 新增
 		    if (c.animFromLane != null) c.animT = Math.min(1.0, c.animT + dt / 0.35); // 0.35s 動畫
 		    // ★ 若使用世界座標補間，一樣推進 animT
@@ -731,6 +826,7 @@ public class CloverleafSimIDM extends JFrame {
 					c.sPrev = c.s; // 更新上一幀進度
 				}
 			}
+			
 		}
 
 		/** 將任務提交至執行緒池並等待完成。 */
@@ -763,7 +859,7 @@ public class CloverleafSimIDM extends JFrame {
 					if (c.s > 1.0)
 						c.s = 0;
 					else if (c.s < 0)
-						c.s += 1.0;
+						c.s = 0;
 				}
 			} else {
 				// 弧線（匝道本身通常也有下一段），同理：有下一段就別回繞
@@ -785,7 +881,7 @@ public class CloverleafSimIDM extends JFrame {
 					spawnable.add(l);
 			Lane lane = spawnable.get(rng.nextInt(spawnable.size()));
 			Car c = new Car(lane);
-			c.s = rng.nextDouble() * 0.2;
+			c.s = rng.nextDouble() * 0.08;
 			c.v = v0 * (0.4 + 0.2 * rng.nextDouble()); // 初速略低於期望速度
 			c.color = randomColor(rng);
 			// 60% 直行、40% 走匝道（可調整）
