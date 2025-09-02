@@ -375,8 +375,8 @@ class TreeGraphPanel extends JPanel {
 		Graphics2D g2d = (Graphics2D) g;
 		g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
-		//Map<Node, Point> nodeLayout = OptimizedLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		//Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		Map<Node, Point> nodeLayout = OptimizedLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2));
