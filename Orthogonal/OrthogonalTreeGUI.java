@@ -206,11 +206,11 @@ class TreeLayoutCalculator {
 	 */
 	public static Map<Node, Point> calculateLayout(Map<Point, Node> pointToNodeMap, List<Edge> edges, int panelWidth, int panelHeight, Node specifiedRoot) {
 
-		// 1) 建立鄰接表：每個節點 → 鄰居清單 (雙向)
+		// 1) 建立鄰接表：每個節點 → 鄰居清單
 		Map<Node, List<Node>> adjacencyList = new HashMap<>();
 		for (Edge edge : edges) {
-			adjacencyList.computeIfAbsent(edge.source, k -> new ArrayList<>()).add(edge.target); //有source就加target
-			adjacencyList.computeIfAbsent(edge.target, k -> new ArrayList<>()).add(edge.source); //有target就加source
+			adjacencyList.computeIfAbsent(edge.source, k -> new ArrayList<>()).add(edge.target);
+			adjacencyList.computeIfAbsent(edge.target, k -> new ArrayList<>()).add(edge.source);
 		}
 
 		// 2) 儲存每個節點的最終座標
@@ -240,9 +240,9 @@ class TreeLayoutCalculator {
 		}
 
 		// 8) 佈局起點與參數
-		double currentX = 50.0;
+		double currentX = 250.0;
 		double startY = 20;
-		double minGap = 50.0; // 後處理壓縮時的最小水平間距（可依字型大小調整）
+		double minGap = 20.0; // 後處理壓縮時的最小水平間距（可依字型大小調整）
 
 		// 9) 逐一處理每棵樹
 		for (Node root : roots) {
@@ -339,27 +339,31 @@ class TreeLayoutCalculator {
 
 	/** 分配節點座標（原有演算法） */
 	private static void assignPositions(Node node, Map<Node, List<Node>> tree, Map<Node, Point> layoutMap, double x, double y, Map<Node, Double> subtreeWidths, double spacingFactor) {
-		// 1. 設定目前節點的座標
-		layoutMap.put(node, new Point(x, y));
-
-		// 2. 若無子節點則返回
+		// 先處理葉節點：沒有子節點時直接放置在傳入的 x
 		List<Node> children = tree.getOrDefault(node, new ArrayList<>());
-		if (children.isEmpty())
+		if (children.isEmpty()) {
+			layoutMap.put(node, new Point(x, y));
 			return;
+		}
 
-		// 3. 計算子節點總寬度
+		// 1) 先根據原本演算法，使用「父節點暫時的 x」來排好所有子節點
 		double childrenTotalWidth = children.stream().mapToDouble(c -> subtreeWidths.getOrDefault(c, 50.0)).sum();
-
-		// 4. 決定第一個子節點的起始 X（將整個孩子群置中於父 x）
 		double currentChildX = x - (childrenTotalWidth * spacingFactor / 2.0);
 
-		// 5. 遞迴分配每個子節點的位置
 		for (Node child : children) {
 			double childWidth = subtreeWidths.getOrDefault(child, 50.0) * spacingFactor;
 			double childX = currentChildX + (childWidth / 2.0);
 			assignPositions(child, tree, layoutMap, childX, y + 50, subtreeWidths, spacingFactor);
 			currentChildX += childWidth;
 		}
+
+		// 2) 所有子節點都有了 x：將「母節點的 x」設為「下一層相鄰子節點 x 的平均值」
+		double sum = 0.0;
+		for (Node child : children) {
+			sum += layoutMap.get(child).x;
+		}
+		double avgX = sum / children.size();
+		layoutMap.put(node, new Point(avgX, y));
 	}
 
 	/** 計算每個節點的子樹寬度（原有演算法） */
@@ -589,8 +593,8 @@ class TreeGraphPanel extends JPanel {
 
 	private final List<Point> allPoints2;
 	private final List<LineSegment> obstacles;
-	//新增：點編號的映射
-	private final Map<Point, Integer> pointNumberMap; 
+	// 新增：點編號的映射
+	private final Map<Point, Integer> pointNumberMap;
 
 //修改建構子，接收點編號的映射
 	public TreeGraphPanel(Map<Point, Node> pointToNodeMap, List<Edge> mstEdges, Node specifiedRoot, List<Point> allPoints2, List<LineSegment> obstacles, Map<Point, Integer> pointNumberMap) {
@@ -614,8 +618,8 @@ class TreeGraphPanel extends JPanel {
 		g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
 		// 修改這裡：從 TreeLayoutCalculator 換成 BuchheimTreeLayout
-    //Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
-    Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		// Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2));
@@ -633,16 +637,16 @@ class TreeGraphPanel extends JPanel {
 			Point p = entry.getValue();
 			g2d.fillOval((int) (p.x - 5 + xOffset), (int) p.y - 5, 10, 10);
 			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 15);
-			
-			//g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
+
+			// g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
 			// 修改這裡：從點編號的映射中取得編號
-      Integer pointNumber = pointNumberMap.get(entry.getKey().point);
-      if (pointNumber != null) {
-          g2d.drawString(String.valueOf(pointNumber), (int) (p.x + 10 + xOffset), (int) p.y);
-      } else {
-          // 如果找不到編號，仍舊顯示原始座標
-          g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + xOffset), (int) p.y);
-      }
+			Integer pointNumber = pointNumberMap.get(entry.getKey().point);
+			if (pointNumber != null) {
+				g2d.drawString(String.valueOf(pointNumber), (int) (p.x + 10 + xOffset), (int) p.y);
+			} else {
+				// 如果找不到編號，仍舊顯示原始座標
+				g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + xOffset), (int) p.y);
+			}
 		}
 
 		// paint network
@@ -689,16 +693,16 @@ class TreeGraphPanel extends JPanel {
 		g2d.setColor(Color.BLACK);
 		for (Point p : allPoints2) {
 			g2d.fillOval((int) (p.x * 50 - 5 + xOffset), (int) (p.y * 50 - 5), 10, 10);
-			
-			//g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+
+			// g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
 			// 修改這裡：從點編號的映射中取得編號
-      Integer pointNumber = pointNumberMap.get(p);
-      if (pointNumber != null) {
-          g2d.drawString(String.valueOf(pointNumber), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
-      } else {
-          // 如果找不到編號，仍舊顯示原始座標
-          g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
-      }
+			Integer pointNumber = pointNumberMap.get(p);
+			if (pointNumber != null) {
+				g2d.drawString(String.valueOf(pointNumber), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+			} else {
+				// 如果找不到編號，仍舊顯示原始座標
+				g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+			}
 		}
 
 		// 新增：特別標示指定的根節點
@@ -733,7 +737,7 @@ public class OrthogonalTreeGUI {
 			// 新增：點與編號的映射
 			Map<Point, Integer> pointNumberMap = new HashMap<>();
 			int pointCounter = 1;
-			
+
 			// 5 x 5 grids
 			int maxI = 9;
 			int maxJ = 13;
