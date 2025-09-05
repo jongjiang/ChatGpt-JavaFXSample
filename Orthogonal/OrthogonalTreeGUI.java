@@ -206,11 +206,11 @@ class TreeLayoutCalculator {
 	 */
 	public static Map<Node, Point> calculateLayout(Map<Point, Node> pointToNodeMap, List<Edge> edges, int panelWidth, int panelHeight, Node specifiedRoot) {
 
-		// 1) 建立鄰接表：每個節點 → 鄰居清單
+		// 1) 建立鄰接表：每個節點 → 鄰居清單 (雙向)
 		Map<Node, List<Node>> adjacencyList = new HashMap<>();
 		for (Edge edge : edges) {
-			adjacencyList.computeIfAbsent(edge.source, k -> new ArrayList<>()).add(edge.target);
-			adjacencyList.computeIfAbsent(edge.target, k -> new ArrayList<>()).add(edge.source);
+			adjacencyList.computeIfAbsent(edge.source, k -> new ArrayList<>()).add(edge.target); //有source就加target
+			adjacencyList.computeIfAbsent(edge.target, k -> new ArrayList<>()).add(edge.source); //有target就加source
 		}
 
 		// 2) 儲存每個節點的最終座標
@@ -242,7 +242,7 @@ class TreeLayoutCalculator {
 		// 8) 佈局起點與參數
 		double currentX = 50.0;
 		double startY = 20;
-		double minGap = 20.0; // 後處理壓縮時的最小水平間距（可依字型大小調整）
+		double minGap = 50.0; // 後處理壓縮時的最小水平間距（可依字型大小調整）
 
 		// 9) 逐一處理每棵樹
 		for (Node root : roots) {
@@ -589,13 +589,17 @@ class TreeGraphPanel extends JPanel {
 
 	private final List<Point> allPoints2;
 	private final List<LineSegment> obstacles;
+	//新增：點編號的映射
+	private final Map<Point, Integer> pointNumberMap; 
 
-	public TreeGraphPanel(Map<Point, Node> pointToNodeMap, List<Edge> mstEdges, Node specifiedRoot, List<Point> allPoints2, List<LineSegment> obstacles) {
+//修改建構子，接收點編號的映射
+	public TreeGraphPanel(Map<Point, Node> pointToNodeMap, List<Edge> mstEdges, Node specifiedRoot, List<Point> allPoints2, List<LineSegment> obstacles, Map<Point, Integer> pointNumberMap) {
 		this.pointToNodeMap = pointToNodeMap;
 		this.mstEdges = mstEdges;
 		this.specifiedRoot = specifiedRoot;
 		this.allPoints2 = allPoints2;
 		this.obstacles = obstacles;
+		this.pointNumberMap = pointNumberMap; // 儲存點編號的映射
 		setPreferredSize(new Dimension(1700, 1000));
 		setBackground(Color.WHITE);
 	}
@@ -626,7 +630,17 @@ class TreeGraphPanel extends JPanel {
 		for (Map.Entry<Node, Point> entry : nodeLayout.entrySet()) {
 			Point p = entry.getValue();
 			g2d.fillOval((int) (p.x - 5 + xOffset), (int) p.y - 5, 10, 10);
-			g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
+			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 15);
+			
+			//g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
+			// 修改這裡：從點編號的映射中取得編號
+      Integer pointNumber = pointNumberMap.get(entry.getKey().point);
+      if (pointNumber != null) {
+          g2d.drawString(String.valueOf(pointNumber), (int) (p.x + 10 + xOffset), (int) p.y);
+      } else {
+          // 如果找不到編號，仍舊顯示原始座標
+          g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + xOffset), (int) p.y);
+      }
 		}
 
 		// paint network
@@ -673,7 +687,16 @@ class TreeGraphPanel extends JPanel {
 		g2d.setColor(Color.BLACK);
 		for (Point p : allPoints2) {
 			g2d.fillOval((int) (p.x * 50 - 5 + xOffset), (int) (p.y * 50 - 5), 10, 10);
-			g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+			
+			//g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+			// 修改這裡：從點編號的映射中取得編號
+      Integer pointNumber = pointNumberMap.get(p);
+      if (pointNumber != null) {
+          g2d.drawString(String.valueOf(pointNumber), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+      } else {
+          // 如果找不到編號，仍舊顯示原始座標
+          g2d.drawString(p.toString(), (int) (p.x * 50 + 10 + xOffset), (int) (p.y * 50));
+      }
 		}
 
 		// 新增：特別標示指定的根節點
@@ -701,9 +724,14 @@ public class OrthogonalTreeGUI {
 			obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
 
 			List<Point> points = new ArrayList<>();
-			List<Point> points2 = new ArrayList<>();
+			// 由於 Kruskal 演算法會對 points 排序，我們需要一個原始的列表來保持點的順序。
+			List<Point> originalPoints = new ArrayList<>();
 			Random r = new Random(System.currentTimeMillis());
 
+			// 新增：點與編號的映射
+			Map<Point, Integer> pointNumberMap = new HashMap<>();
+			int pointCounter = 1;
+			
 			// 5 x 5 grids
 			int maxI = 9;
 			int maxJ = 13;
@@ -714,21 +742,26 @@ public class OrthogonalTreeGUI {
 					Point pt = new Point(i + d1, j + d2);
 					Point pt2 = new Point(pt.x, pt.y);
 					points.add(new Point(i + d1, j + d2));
-					points2.add(pt2);
+					originalPoints.add(pt2); // 儲存原始順序的點
+					pointNumberMap.put(pt, pointCounter++); // 關聯編號
 				}
 			}
 
-			points.add(new Point(0.5, 0.5));
-			points.add(new Point(maxI + 0.9, maxJ + 0.9));
-			points2.add(new Point(0.5, 0.5));
-			points2.add(new Point(maxI + 0.9, maxJ + 0.9));
+			Point pt_1st = new Point(0.5, 0.5);
+			Point pt_last = new Point(maxI + 0.9, maxJ + 0.9);
+			points.add(pt_1st);
+			points.add(pt_last);
+			originalPoints.add(new Point(0.5, 0.5));
+			originalPoints.add(new Point(maxI + 0.9, maxJ + 0.9));
+			pointNumberMap.put(pt_1st, 0);
+			pointNumberMap.put(pt_last, pointCounter++);
 			Point customRootPoint = points.get(r.nextInt(points.size()));
 
 //			Point customRootPoint = new Point(0.5, 0.5);
 //			points.add(customRootPoint);
 //			points.add(new Point(9.9, 9.9));
-//			points2.add(new Point(0.5, 0.5));
-//			points2.add(new Point(9.9, 9.9));
+//			originalPoints.add(new Point(0.5, 0.5));
+//			originalPoints.add(new Point(9.9, 9.9));
 
 			Map<Point, Node> pointToNodeMap = points.stream().collect(Collectors.toMap(p -> p, Node::new, (existing, replacement) -> existing));
 
@@ -740,7 +773,8 @@ public class OrthogonalTreeGUI {
 
 			JFrame frame = new JFrame("可見性圖的最小生成樹 (樹狀佈局)");
 			frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-			frame.add(new JScrollPane(new TreeGraphPanel(pointToNodeMap, mstEdges, specifiedRoot, points2, obstacles)));
+			// 傳入 pointNumberMap 和原始 points 列表
+			frame.add(new JScrollPane(new TreeGraphPanel(pointToNodeMap, mstEdges, specifiedRoot, originalPoints, obstacles, pointNumberMap)));
 			frame.pack();
 			frame.setLocationRelativeTo(null);
 			frame.setVisible(true);
