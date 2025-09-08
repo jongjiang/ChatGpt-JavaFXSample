@@ -25,6 +25,7 @@ class Node {
 
 // 2. AveragePositioner 類：計算節點位置
 class AveragePositioner {
+	private static final double X_SPACING = 50;
 	private static final double Y_SPACING = 50;
 
 	// 初始化所有葉子節點的 X, Y 軸位置
@@ -32,7 +33,7 @@ class AveragePositioner {
 		if (node == null)
 			return;
 		if (node.left == null && node.right == null) {
-			node.xPosition = xCounter.getAndIncrement() * 50; // 50是間距
+			node.xPosition = xCounter.getAndIncrement() * X_SPACING; // 50是間距
 			node.yPosition = yLevel * Y_SPACING;
 			return;
 		}
@@ -56,6 +57,7 @@ class AveragePositioner {
 }
 
 // 3. DendrogramPanel 類：繪圖元件
+@SuppressWarnings("serial")
 class DendrogramPanel extends JPanel {
 	private final Node root;
 
@@ -101,13 +103,18 @@ public class SwingDendrogramApp {
 
 	public static void main(String[] args) {
 		// 1. 建立樹狀圖結構
-		Node leafD = new Node("D");
-		Node leafE = new Node("E");
-		Node nodeB = new Node("B", leafD, leafE);
+		Node leafH = new Node("H");
+		Node leafI = new Node("I");
+		Node leafJ = new Node("J");
+		Node leafK = new Node("K");
 
-		Node leafF = new Node("F");
+		Node leafD = new Node("D");
+		Node nodeE = new Node("E", leafH, leafI);
+		Node nodeB = new Node("B", leafD, nodeE);
+
+		Node nodeF = new Node("F", leafJ, leafK);
 		Node leafG = new Node("G");
-		Node nodeC = new Node("C", leafF, leafG);
+		Node nodeC = new Node("C", nodeF, leafG);
 
 		Node rootA = new Node("A", nodeB, nodeC);
 
