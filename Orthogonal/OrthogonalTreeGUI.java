@@ -596,7 +596,7 @@ class TreeGraphPanel extends JPanel {
 	// 新增：點編號的映射
 	private final Map<Point, Integer> pointNumberMap;
 
-//修改建構子，接收點編號的映射
+	//修改建構子，接收點編號的映射
 	public TreeGraphPanel(Map<Point, Node> pointToNodeMap, List<Edge> mstEdges, Node specifiedRoot, List<Point> allPoints2, List<LineSegment> obstacles, Map<Point, Integer> pointNumberMap) {
 		this.pointToNodeMap = pointToNodeMap;
 		this.mstEdges = mstEdges;
@@ -618,8 +618,8 @@ class TreeGraphPanel extends JPanel {
 		g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
 		// 修改這裡：從 TreeLayoutCalculator 換成 BuchheimTreeLayout
-		// Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
-		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		// Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2));
@@ -725,9 +725,9 @@ public class OrthogonalTreeGUI {
 		SwingUtilities.invokeLater(() -> {
 			List<LineSegment> obstacles = new ArrayList<>();
 			obstacles.add(new LineSegment(new Point(1, 3), new Point(3, 2)));
-			// obstacles.add(new LineSegment(new Point(3, 2), new Point(9, 8)));
-			obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
-			obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
+			//obstacles.add(new LineSegment(new Point(3, 2), new Point(9, 8)));
+			//obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
+			//obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
 
 			List<Point> points = new ArrayList<>();
 			// 由於 Kruskal 演算法會對 points 排序，我們需要一個原始的列表來保持點的順序。
@@ -739,12 +739,14 @@ public class OrthogonalTreeGUI {
 			int pointCounter = 1;
 
 			// 5 x 5 grids
-			int maxI = 9;
-			int maxJ = 13;
+			int maxI = 5;//9;
+			int maxJ = 5;//9;
 			for (int i = 1; i <= maxI; i += 2) {
 				for (int j = 1; j <= maxJ; j += 2) {
-					double d1 = r.nextInt(9) * 0.1;
-					double d2 = r.nextInt(9) * 0.1;
+					double d1 = 0.1;
+					double d2 = 0.1;
+//					double d1 = r.nextInt(9) * 0.1;
+//					double d2 = r.nextInt(9) * 0.1;
 					Point pt = new Point(i + d1, j + d2);
 					Point pt2 = new Point(pt.x, pt.y);
 					points.add(new Point(i + d1, j + d2));
@@ -761,7 +763,7 @@ public class OrthogonalTreeGUI {
 			originalPoints.add(new Point(maxI + 0.9, maxJ + 0.9));
 			pointNumberMap.put(pt_1st, 0);
 			pointNumberMap.put(pt_last, pointCounter++);
-			Point customRootPoint = points.get(r.nextInt(points.size()));
+			Point customRootPoint = points.get(7);//points.get(r.nextInt(points.size()));
 
 //			Point customRootPoint = new Point(0.5, 0.5);
 //			points.add(customRootPoint);
@@ -772,6 +774,7 @@ public class OrthogonalTreeGUI {
 			Map<Point, Node> pointToNodeMap = points.stream().collect(Collectors.toMap(p -> p, Node::new, (existing, replacement) -> existing));
 
 			VisibilityChecker checker = new VisibilityChecker(obstacles);
+			//最小生成樹 (MST) 演算法 - Kruskal
 			List<Edge> mstEdges = KruskalMST.findMST(points, checker, pointToNodeMap);
 
 			// 指定根節點
