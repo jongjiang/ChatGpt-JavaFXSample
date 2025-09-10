@@ -618,8 +618,8 @@ class TreeGraphPanel extends JPanel {
 		g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
 		// 修改這裡：從 TreeLayoutCalculator 換成 BuchheimTreeLayout
-		Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
-		// Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		// Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2));
@@ -632,20 +632,26 @@ class TreeGraphPanel extends JPanel {
 		}
 
 		// draw tree points
+		int arc = 8; // 圓角弧度
+		
 		g2d.setColor(Color.BLACK);
+		g2d.setStroke(new BasicStroke(2)); // 設定畫筆粗細
 		for (Map.Entry<Node, Point> entry : nodeLayout.entrySet()) {
 			Point p = entry.getValue();
-			g2d.fillOval((int) (p.x - 5 + xOffset), (int) p.y - 5, 10, 10);
-			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 15);
+
+			if (!p.equals(nodeLayout.get(specifiedRoot)))
+				//			g2d.fillOval((int) (p.x - 5 + xOffset), (int) p.y - 5, 10, 10);
+				g2d.drawRoundRect((int) (p.x - 5 + xOffset), (int) p.y - 5, 20, 20, arc, arc);
+			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 25);
 
 			// g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
 			// 修改這裡：從點編號的映射中取得編號
 			Integer pointNumber = pointNumberMap.get(entry.getKey().point);
 			if (pointNumber != null) {
-				g2d.drawString(String.valueOf(pointNumber), (int) (p.x + 10 + xOffset), (int) p.y);
+				g2d.drawString(String.valueOf(pointNumber), (int) (p.x + 20 + xOffset), (int) p.y);
 			} else {
 				// 如果找不到編號，仍舊顯示原始座標
-				g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + xOffset), (int) p.y);
+				g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 20 + xOffset), (int) p.y);
 			}
 		}
 
@@ -657,7 +663,8 @@ class TreeGraphPanel extends JPanel {
 			g2d.setColor(Color.ORANGE);
 			Point rootP = nodeLayout.get(specifiedRoot);
 			if (rootP != null) {
-				g2d.fillOval((int) (rootP.x - 8 + xOffset), (int) rootP.y - 8, 16, 16);
+				//g2d.fillOval((int) (rootP.x - 8 + xOffset), (int) rootP.y - 8, 16, 16);
+				g2d.fillRoundRect((int) (rootP.x - 8 + xOffset), (int) rootP.y - 8, 20, 20, arc, arc);
 				g2d.setColor(Color.BLACK);
 				g2d.setFont(new Font("新細明體", Font.BOLD, 14));
 				g2d.drawString("Root", (int) (rootP.x + 10 + xOffset), (int) rootP.y - 20);
@@ -725,9 +732,9 @@ public class OrthogonalTreeGUI {
 		SwingUtilities.invokeLater(() -> {
 			List<LineSegment> obstacles = new ArrayList<>();
 			obstacles.add(new LineSegment(new Point(1, 3), new Point(3, 2)));
-			//obstacles.add(new LineSegment(new Point(3, 2), new Point(9, 8)));
-			//obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
-			//obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
+			obstacles.add(new LineSegment(new Point(3, 2), new Point(9, 8)));
+			obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
+			obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
 
 			List<Point> points = new ArrayList<>();
 			// 由於 Kruskal 演算法會對 points 排序，我們需要一個原始的列表來保持點的順序。
@@ -739,14 +746,12 @@ public class OrthogonalTreeGUI {
 			int pointCounter = 1;
 
 			// 5 x 5 grids
-			int maxI = 5;//9;
-			int maxJ = 5;//9;
+			int maxI = 9;
+			int maxJ = 9;
 			for (int i = 1; i <= maxI; i += 2) {
 				for (int j = 1; j <= maxJ; j += 2) {
-					double d1 = 0.1;
-					double d2 = 0.1;
-//					double d1 = r.nextInt(9) * 0.1;
-//					double d2 = r.nextInt(9) * 0.1;
+					double d1 = r.nextInt(9) * 0.1;
+					double d2 = r.nextInt(9) * 0.1;
 					Point pt = new Point(i + d1, j + d2);
 					Point pt2 = new Point(pt.x, pt.y);
 					points.add(new Point(i + d1, j + d2));
@@ -763,7 +768,7 @@ public class OrthogonalTreeGUI {
 			originalPoints.add(new Point(maxI + 0.9, maxJ + 0.9));
 			pointNumberMap.put(pt_1st, 0);
 			pointNumberMap.put(pt_last, pointCounter++);
-			Point customRootPoint = points.get(7);//points.get(r.nextInt(points.size()));
+			Point customRootPoint = points.get(r.nextInt(points.size()));
 
 //			Point customRootPoint = new Point(0.5, 0.5);
 //			points.add(customRootPoint);
