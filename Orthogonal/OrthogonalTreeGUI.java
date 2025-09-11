@@ -596,7 +596,7 @@ class TreeGraphPanel extends JPanel {
 	// 新增：點編號的映射
 	private final Map<Point, Integer> pointNumberMap;
 
-	//修改建構子，接收點編號的映射
+	// 修改建構子，接收點編號的映射
 	public TreeGraphPanel(Map<Point, Node> pointToNodeMap, List<Edge> mstEdges, Node specifiedRoot, List<Point> allPoints2, List<LineSegment> obstacles, Map<Point, Integer> pointNumberMap) {
 		this.pointToNodeMap = pointToNodeMap;
 		this.mstEdges = mstEdges;
@@ -618,33 +618,37 @@ class TreeGraphPanel extends JPanel {
 		g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
 		// 修改這裡：從 TreeLayoutCalculator 換成 BuchheimTreeLayout
-		// Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
+		//Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
 		g2d.setColor(Color.BLUE);
-		g2d.setStroke(new BasicStroke(2));
+		g2d.setStroke(new BasicStroke(2)); // 設定畫筆粗細
 		for (Edge edge : mstEdges) {
 			Point p1 = nodeLayout.get(edge.source);
 			Point p2 = nodeLayout.get(edge.target);
 			if (p1 != null && p2 != null) {
-				g2d.drawLine((int) (p1.x + xOffset), (int) p1.y, (int) (p2.x + xOffset), (int) p2.y);
+				if (p2.y > p1.y) {
+					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p1.y + 7), (int) (p1.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2);
+					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2, (int) (p2.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2);
+					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2, (int) (p2.x + xOffset + 3), (int) (p2.y - 5));
+				} else if (p1.y > p2.y) {
+					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p2.y + 7), (int) (p2.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2);
+					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2, (int) (p1.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2);
+					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2, (int) (p1.x + xOffset + 3), (int) (p1.y - 5));
+				}
 			}
 		}
 
-		// draw tree points
-		int arc = 8; // 圓角弧度
-		
+		// draw tree points (nodes)
+		int arc = 4; // 圓角弧度
 		g2d.setColor(Color.BLACK);
-		g2d.setStroke(new BasicStroke(2)); // 設定畫筆粗細
 		for (Map.Entry<Node, Point> entry : nodeLayout.entrySet()) {
 			Point p = entry.getValue();
 
 			if (!p.equals(nodeLayout.get(specifiedRoot)))
-				//			g2d.fillOval((int) (p.x - 5 + xOffset), (int) p.y - 5, 10, 10);
-				g2d.drawRoundRect((int) (p.x - 5 + xOffset), (int) p.y - 5, 20, 20, arc, arc);
+				g2d.drawRoundRect((int) (p.x - 5 + xOffset), (int) (p.y - 5), 16, 12, arc, arc);
 			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 25);
 
-			// g2d.drawString(entry.getKey().point.toString(), (int) (p.x + 10 + +xOffset), (int) p.y);
 			// 修改這裡：從點編號的映射中取得編號
 			Integer pointNumber = pointNumberMap.get(entry.getKey().point);
 			if (pointNumber != null) {
@@ -658,16 +662,15 @@ class TreeGraphPanel extends JPanel {
 		// paint network
 		paint2(g2d);
 
-		// 新增：特別標示指定的根節點
+		// 繪製根節點 ROOT
 		if (specifiedRoot != null && nodeLayout.containsKey(specifiedRoot)) {
 			g2d.setColor(Color.ORANGE);
 			Point rootP = nodeLayout.get(specifiedRoot);
 			if (rootP != null) {
-				//g2d.fillOval((int) (rootP.x - 8 + xOffset), (int) rootP.y - 8, 16, 16);
-				g2d.fillRoundRect((int) (rootP.x - 8 + xOffset), (int) rootP.y - 8, 20, 20, arc, arc);
+				g2d.fillRoundRect((int) (rootP.x - 5 + xOffset), (int) (rootP.y - 5), 16, 12, arc, arc);
 				g2d.setColor(Color.BLACK);
 				g2d.setFont(new Font("新細明體", Font.BOLD, 14));
-				g2d.drawString("Root", (int) (rootP.x + 10 + xOffset), (int) rootP.y - 20);
+				g2d.drawString("Root", (int) (rootP.x + 10 + xOffset), (int) (rootP.y - 20));
 			}
 		}
 
@@ -733,7 +736,7 @@ public class OrthogonalTreeGUI {
 			List<LineSegment> obstacles = new ArrayList<>();
 			obstacles.add(new LineSegment(new Point(1, 3), new Point(3, 2)));
 			obstacles.add(new LineSegment(new Point(3, 2), new Point(9, 8)));
-			obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
+			//obstacles.add(new LineSegment(new Point(3, 2), new Point(8, 2)));
 			obstacles.add(new LineSegment(new Point(3, 8), new Point(4, 4)));
 
 			List<Point> points = new ArrayList<>();
@@ -779,7 +782,7 @@ public class OrthogonalTreeGUI {
 			Map<Point, Node> pointToNodeMap = points.stream().collect(Collectors.toMap(p -> p, Node::new, (existing, replacement) -> existing));
 
 			VisibilityChecker checker = new VisibilityChecker(obstacles);
-			//最小生成樹 (MST) 演算法 - Kruskal
+			// 最小生成樹 (MST) 演算法 - Kruskal
 			List<Edge> mstEdges = KruskalMST.findMST(points, checker, pointToNodeMap);
 
 			// 指定根節點
