@@ -621,20 +621,42 @@ class TreeGraphPanel extends JPanel {
 		//Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
+		int nodeW = 16;
+		int nodeH = 12;
+		
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2)); // 設定畫筆粗細
 		for (Edge edge : mstEdges) {
 			Point p1 = nodeLayout.get(edge.source);
 			Point p2 = nodeLayout.get(edge.target);
 			if (p1 != null && p2 != null) {
+				
+				// 節點中心點的 x 座標
+        int p1_centerX = (int) (p1.x - 5 + xOffset + nodeW / 2);
+        int p2_centerX = (int) (p2.x - 5 + xOffset + nodeW / 2);
+				
 				if (p2.y > p1.y) {
-					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p1.y + 7), (int) (p1.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2);
-					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2, (int) (p2.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2);
-					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p1.y + 1) + ((int) p2.y - (int) p1.y) / 2, (int) (p2.x + xOffset + 3), (int) (p2.y - 5));
-				} else if (p1.y > p2.y) {
-					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p2.y + 7), (int) (p2.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2);
-					g2d.drawLine((int) (p2.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2, (int) (p1.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2);
-					g2d.drawLine((int) (p1.x + xOffset + 3), (int) (p2.y + 1) + ((int) p1.y - (int) p2.y) / 2, (int) (p1.x + xOffset + 3), (int) (p1.y - 5));
+					// p1底部中點
+	        int p1_bottomY = (int)(p1.y + nodeH - 5);
+	        // p2頂部中點
+	        int p2_topY = (int) p2.y - 5;
+	        // 連接點的垂直中線
+	        int midY = p1_bottomY + (p2_topY - p1_bottomY) / 2;
+	        
+	        g2d.drawLine(p1_centerX, p1_bottomY, p1_centerX, midY);
+	        g2d.drawLine(p1_centerX, midY, p2_centerX, midY);
+	        g2d.drawLine(p2_centerX, midY, p2_centerX, p2_topY);
+				} else {
+					// p2底部中點
+	        int p2_bottomY = (int)(p2.y + nodeH - 5);
+	        // p1頂部中點
+	        int p1_topY = (int) p1.y - 5;
+	        // 連接點的垂直中線
+	        int midY = p2_bottomY + (p1_topY - p2_bottomY) / 2;
+					
+	        g2d.drawLine(p2_centerX, p2_bottomY, p2_centerX, midY);
+	        g2d.drawLine(p2_centerX, midY, p1_centerX, midY);
+	        g2d.drawLine(p1_centerX, midY, p1_centerX, p1_topY);
 				}
 			}
 		}
@@ -646,7 +668,7 @@ class TreeGraphPanel extends JPanel {
 			Point p = entry.getValue();
 
 			if (!p.equals(nodeLayout.get(specifiedRoot)))
-				g2d.drawRoundRect((int) (p.x - 5 + xOffset), (int) (p.y - 5), 16, 12, arc, arc);
+				g2d.drawRoundRect((int) (p.x - 5 + xOffset), (int) (p.y - 5), nodeW, nodeH, arc, arc);
 			g2d.drawString("x=" + String.valueOf((p.x - 5 + xOffset)), (int) (p.x - 5 + xOffset), (int) p.y + 25);
 
 			// 修改這裡：從點編號的映射中取得編號
@@ -667,7 +689,7 @@ class TreeGraphPanel extends JPanel {
 			g2d.setColor(Color.ORANGE);
 			Point rootP = nodeLayout.get(specifiedRoot);
 			if (rootP != null) {
-				g2d.fillRoundRect((int) (rootP.x - 5 + xOffset), (int) (rootP.y - 5), 16, 12, arc, arc);
+				g2d.fillRoundRect((int) (rootP.x - 5 + xOffset), (int) (rootP.y - 5), nodeW, nodeH, arc, arc);
 				g2d.setColor(Color.BLACK);
 				g2d.setFont(new Font("新細明體", Font.BOLD, 14));
 				g2d.drawString("Root", (int) (rootP.x + 10 + xOffset), (int) (rootP.y - 20));
