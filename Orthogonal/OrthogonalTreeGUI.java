@@ -621,8 +621,8 @@ class TreeGraphPanel extends JPanel {
 		//Map<Node, Point> nodeLayout = BuchheimTreeLayout.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 		Map<Node, Point> nodeLayout = TreeLayoutCalculator.calculateLayout(pointToNodeMap, mstEdges, 500, getHeight(), specifiedRoot);
 
-		int nodeW = 16;
-		int nodeH = 12;
+		int nodeW = 24;
+		int nodeH = 18;
 		
 		g2d.setColor(Color.BLUE);
 		g2d.setStroke(new BasicStroke(2)); // 設定畫筆粗細
@@ -770,13 +770,13 @@ public class OrthogonalTreeGUI {
 			Map<Point, Integer> pointNumberMap = new HashMap<>();
 			int pointCounter = 1;
 
-			// 5 x 5 grids
+			// m x n grids
 			int maxI = 9;
 			int maxJ = 9;
 			for (int i = 1; i <= maxI; i += 2) {
 				for (int j = 1; j <= maxJ; j += 2) {
-					double d1 = r.nextInt(9) * 0.1;
-					double d2 = r.nextInt(9) * 0.1;
+					double d1 = r.nextInt(9) * 0.1; // make 0.1 to 0.9 擾動
+					double d2 = r.nextInt(9) * 0.1; // make 0.1 to 0.9 擾動
 					Point pt = new Point(i + d1, j + d2);
 					Point pt2 = new Point(pt.x, pt.y);
 					points.add(new Point(i + d1, j + d2));
