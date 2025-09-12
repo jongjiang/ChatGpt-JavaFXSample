@@ -629,36 +629,39 @@ class TreeGraphPanel extends JPanel {
 		for (Edge edge : mstEdges) {
 			Point p1 = nodeLayout.get(edge.source);
 			Point p2 = nodeLayout.get(edge.target);
+			
 			if (p1 != null && p2 != null) {
 				
 				// 節點中心點的 x 座標
         int p1_centerX = (int) (p1.x - 5 + xOffset + nodeW / 2);
         int p2_centerX = (int) (p2.x - 5 + xOffset + nodeW / 2);
 				
-				if (p2.y > p1.y) {
-					// p1底部中點
-	        int p1_bottomY = (int)(p1.y + nodeH - 5);
-	        // p2頂部中點
-	        int p2_topY = (int) p2.y - 5;
-	        // 連接點的垂直中線
-	        int midY = p1_bottomY + (p2_topY - p1_bottomY) / 2;
-	        
-	        g2d.drawLine(p1_centerX, p1_bottomY, p1_centerX, midY);
-	        g2d.drawLine(p1_centerX, midY, p2_centerX, midY);
-	        g2d.drawLine(p2_centerX, midY, p2_centerX, p2_topY);
-				} else {
-					// p2底部中點
-	        int p2_bottomY = (int)(p2.y + nodeH - 5);
-	        // p1頂部中點
-	        int p1_topY = (int) p1.y - 5;
-	        // 連接點的垂直中線
-	        int midY = p2_bottomY + (p1_topY - p2_bottomY) / 2;
-					
-	        g2d.drawLine(p2_centerX, p2_bottomY, p2_centerX, midY);
-	        g2d.drawLine(p2_centerX, midY, p1_centerX, midY);
-	        g2d.drawLine(p1_centerX, midY, p1_centerX, p1_topY);
+        // upper node 底部中點
+        int upper_bottomY = (int)(p1.y + nodeH - 5);
+        // lower node 頂部中點
+        int lower_topY = (int) p2.y - 5;
+        // 水平線Y值
+        int midY = upper_bottomY + (lower_topY - upper_bottomY) / 2;
+        int fromCenterX = p1_centerX;
+        int toCenterX = p2_centerX;
+        
+				if (p2.y < p1.y) {
+					// upper node 底部中點
+					upper_bottomY = (int)(p2.y + nodeH - 5);
+	        // lower node 頂部中點
+					lower_topY = (int) p1.y - 5;
+	        // 水平線Y值
+	        midY = upper_bottomY + (lower_topY - upper_bottomY) / 2;
+	        fromCenterX = p2_centerX;
+	        toCenterX = p1_centerX;
 				}
+				
+				g2d.drawLine(fromCenterX, upper_bottomY, fromCenterX, midY);
+        g2d.drawLine(fromCenterX, midY, toCenterX, midY);
+        g2d.drawLine(toCenterX, midY, toCenterX, lower_topY);
+				
 			}
+			
 		}
 
 		// draw tree points (nodes)
